@@ -1,0 +1,20 @@
+.{
+    .name = .simple_example,
+    .version = "0.0.0",
+    .fingerprint = 0x24a585647bbf2e4e,
+    .dependencies = .{
+        .javascript_bridge = .{
+            .path = "../",
+        },
+        .dvui = .{
+            .url = "git+https://github.com/david-vanderson/dvui.git#a55c7c2635b5feeaee38a8814e0a1b67b9896d40",
+            .hash = "dvui-0.2.0-AQFJmZBqygBJLIgh9scr6_qGlS3w9ebOqSYNOZ2mlXCF",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "static",
+    },
+}
