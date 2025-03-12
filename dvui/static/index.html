@@ -1,13 +1,14 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-	<head>
-		<title>Zig Javascript Bridge Demo</title>
-		<link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon"> 
-	</head>
-	<body>
-		<script src="zjb_extract.js"></script>
-		<script>
-			const env = {
+  <head>
+    <title>Zig Javascript Bridge Demo</title>
+    <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <script src="zjb_extract.js"></script>
+    <script>
+      const env = {
 				memory: new WebAssembly.Memory({initial: 1}),
 				__stack_pointer: 0,
 			};
@@ -20,6 +21,6 @@
 					results.instance.exports.main();
 				});
 			})();
-		</script>
-	</body>
+    </script>
+  </body>
 </html>
