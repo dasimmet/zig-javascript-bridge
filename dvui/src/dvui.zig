@@ -27,6 +27,7 @@ export fn main() void {
         zjb.global("console").call("error", .{zjb.constString("Init Window")}, void);
         return;
     };
+    std.log.info("content_scale: {d}", .{win.content_scale});
     backend.win = &win;
     backend.register_app_update("dvui_app_update", &app_update);
     dvui.Examples.show_demo_window = true;

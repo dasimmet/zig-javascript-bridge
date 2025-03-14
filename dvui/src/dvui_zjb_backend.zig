@@ -38,9 +38,12 @@ pub fn backend(self: *ZjbBackend) dvui.Backend {
 }
 
 pub fn init(query: []const u8) !ZjbBackend {
+    const window = zjb.global("window");
     const doc = zjb.global("document");
     const canvas = doc.call("querySelector", .{zjb.string(query)}, zjb.Handle);
     const state = zjb.global("Object").new(.{});
+
+    window.set("state", state);
     state.set("app_update", zjb.global("undefined"));
     state.set("renderRequested", false);
     state.set("render", zjb.fnHandle("render", &Callbacks.render).call(
@@ -60,15 +63,25 @@ pub fn init(query: []const u8) !ZjbBackend {
 
     const gl = canvas.call("getContext", .{ zjb.constString("webgl2"), gl_args }, zjb.Handle);
     state.set("gl", gl);
+
+    {
+        const functions_class = window.call("eval", .{zjb.constString(@embedFile("functions.js") ++ "\n;functions;")}, zjb.Handle);
+        defer functions_class.release();
+        zjb.global("console").call("log", .{ zjb.constString("functions:"), functions_class }, void);
+        const functions_handle = functions_class.new(.{
+            gl,
+        });
+        defer functions_handle.release();
+        state.set("functions", functions_handle);
+    }
+
     const requestRenderHandle = zjb.fnHandle("requestRender", &Callbacks.requestRender).call(
         "bind",
         .{ zjb.global("undefined"), state },
         zjb.Handle,
     );
-    const window = zjb.global("window");
     window.call("addEventListener", .{ zjb.constString("resize"), requestRenderHandle }, void);
     window.call("setTimeout", .{ requestRenderHandle, 1000 }, void);
-    window.set("state", state);
     Callbacks.requestRender(state);
     return .{
         .state = state,
@@ -227,58 +240,119 @@ pub fn hasEvent(_: *ZjbBackend) bool {
     return false;
 }
 
-pub fn drawClippedTriangles(_: *ZjbBackend, texture: ?dvui.Texture, vtx: []const dvui.Vertex, idx: []const u16, maybe_clipr: ?dvui.Rect) void {
-    _ = texture;
-    _ = vtx;
-    _ = idx;
-    _ = maybe_clipr;
+pub fn drawClippedTriangles(self: *ZjbBackend, texture: ?dvui.Texture, vtx: []const dvui.Vertex, idx: []const u16, maybe_clipr: ?dvui.Rect) void {
+    var x: i32 = std.math.maxInt(i32);
+    var w: i32 = std.math.maxInt(i32);
+    var y: i32 = std.math.maxInt(i32);
+    var h: i32 = std.math.maxInt(i32);
+    const gl = self.state.get("gl", zjb.Handle);
+    defer gl.release();
+
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+    var clipr_var: i32 = 0;
+    if (maybe_clipr) |clipr| {
+        clipr_var = 1;
+        // figure out how much we are losing by truncating x and y, need to add that back to w and h
+        x = @intFromFloat(clipr.x);
+        w = @intFromFloat(@ceil(clipr.w + clipr.x - @floor(clipr.x)));
+
+        const using_fb = func.get("using_fb", i32);
+        if (using_fb == 0) {
+            // y needs to be converted to 0 at bottom first
+            const ry: f32 = gl.get("drawingBufferHeight", f32) - clipr.y - clipr.h;
+            y = @intFromFloat(ry);
+            h = @intFromFloat(@ceil(clipr.h + ry - @floor(ry)));
+        } else {
+            y = @intFromFloat(clipr.y);
+            h = @intFromFloat(@ceil(clipr.h + clipr.y - @floor(clipr.y)));
+        }
+    }
+
+    const index_array = zjb.u8ArrayView(std.mem.sliceAsBytes(idx));
+    defer index_array.release();
+    const vertex_array = zjb.u8ArrayView(std.mem.sliceAsBytes(vtx));
+    defer vertex_array.release();
+
+    func.call("renderGeometry", .{
+        if (texture) |t| @as(i32, @intCast(@intFromPtr(t.ptr))) else 0,
+        index_array,
+        vertex_array,
+        @as(i32, @intCast(@sizeOf(dvui.Vertex))),
+        @as(i32, @intCast(@offsetOf(dvui.Vertex, "pos"))),
+        @as(i32, @intCast(@offsetOf(dvui.Vertex, "col"))),
+        @as(i32, @intCast(@offsetOf(dvui.Vertex, "uv"))),
+        clipr_var,
+        x,
+        y,
+        w,
+        h,
+    }, void);
 }
 
 pub fn textureCreate(self: *ZjbBackend, pixels: [*]u8, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) dvui.Texture {
-    _ = self;
-    _ = pixels;
-    _ = width;
-    _ = height;
-    _ = interpolation;
-    @panic("NOT IMPLEMENTED");
-}
-
-pub fn textureCreateTarget(self: *ZjbBackend, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) !dvui.Texture {
-    _ = self;
-    const wasm_interp: u8 = switch (interpolation) {
+    const wasm_interp: i32 = switch (interpolation) {
         .nearest => 0,
         .linear => 1,
     };
-    _ = wasm_interp;
-    _ = width;
-    _ = height;
-    @panic("NOT IMPLEMENTED");
-    // const id = wasm.wasm_textureCreateTarget(width, height, wasm_interp);
-    // return dvui.Texture{ .ptr = @ptrFromInt(id), .width = width, .height = height };
+    const pixData = zjb.u8ArrayView(pixels[0 .. width * height * 4]);
+    defer pixData.release();
+
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+    const id = func.call("textureCreate", .{
+        pixData, @as(i32, @intCast(width)), @as(i32, @intCast(height)), wasm_interp,
+    }, i32);
+    const id_ptr: *anyopaque = @ptrFromInt(@as(usize, @intCast(id)));
+    return dvui.Texture{ .ptr = id_ptr, .width = width, .height = height };
+}
+
+pub fn textureCreateTarget(self: *ZjbBackend, width: u32, height: u32, interpolation: dvui.enums.TextureInterpolation) !dvui.Texture {
+    const wasm_interp: i32 = switch (interpolation) {
+        .nearest => 0,
+        .linear => 1,
+    };
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+    const id = func.call("textureCreateTarget", .{
+        @as(i32, @intCast(width)), @as(i32, @intCast(height)), wasm_interp,
+    }, i32);
+    const id_ptr: *anyopaque = @ptrFromInt(@as(usize, @intCast(id)));
+    return dvui.Texture{ .ptr = id_ptr, .width = width, .height = height };
 }
 
 pub fn renderTarget(self: *ZjbBackend, texture: ?dvui.Texture) void {
-    _ = self;
-    _ = texture;
-    @panic("NOT IMPLEMENTED");
-    // if (texture) |tex| {
-    //     wasm.wasm_renderTarget(@as(u32, @intFromPtr(tex.ptr)));
-    // } else {
-    //     wasm.wasm_renderTarget(0);
-    // }
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+
+    if (texture) |tex| {
+        func.call("renderTarget", .{@as(i32, @intCast(@intFromPtr(tex.ptr)))}, void);
+    } else {
+        func.call("renderTarget", .{@as(i32, 0)}, void);
+    }
 }
 
-pub fn textureRead(_: *ZjbBackend, texture: dvui.Texture, pixels_out: [*]u8) error{TextureRead}!void {
-    _ = texture;
-    _ = pixels_out;
-    @panic("NOT IMPLEMENTED");
+pub fn textureRead(self: *ZjbBackend, texture: dvui.Texture, pixels_out: [*]u8) error{TextureRead}!void {
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+    const pixData = zjb.u8ArrayView(pixels_out[0 .. texture.width * texture.height * 4]);
+    defer pixData.release();
+    func.call("textureRead", .{
+        @as(i32, @intCast(@intFromPtr(texture.ptr))),
+        pixData,
+        @as(i32, @intCast(texture.width)),
+        @as(i32, @intCast(texture.height)),
+    }, void);
+
     // wasm.wasm_textureRead(@as(u32, @intFromPtr(texture.ptr)), pixels_out, texture.width, texture.height);
 }
 
-pub fn textureDestroy(_: *ZjbBackend, texture: dvui.Texture) void {
-    _ = texture;
-    @panic("NOT IMPLEMENTED");
-    // wasm.wasm_textureDestroy(@as(u32, @intFromPtr(texture.ptr)));
+pub fn textureDestroy(self: *ZjbBackend, texture: dvui.Texture) void {
+    const func = self.state.get("functions", zjb.Handle);
+    defer func.release();
+    func.call("textureDestroy", .{
+        @as(i32, @intCast(@intFromPtr(texture.ptr))),
+    }, void);
 }
 
 pub fn textInputRect(self: *ZjbBackend, rect: ?dvui.Rect) void {
@@ -327,6 +401,7 @@ pub fn downloadData(name: []const u8, data: []const u8) !void {
 
 pub fn refresh(self: *ZjbBackend) void {
     _ = self;
+    @panic("NOT IMPLEMENTED");
 }
 
 pub fn setCursor(self: *ZjbBackend, cursor: dvui.enums.Cursor) void {
