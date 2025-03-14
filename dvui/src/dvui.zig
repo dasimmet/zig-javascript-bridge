@@ -27,8 +27,21 @@ export fn main() void {
         return;
     };
     backend.win = &win;
-
+    backend.register_app_update("dvui_app_update", &app_update);
     dvui.Examples.show_demo_window = true;
+}
+
+pub fn app_update(ptr: *Backend) i32 {
+    std.log.info("ptr: {any}", .{ptr.*});
+    return update(ptr) catch |err| {
+        std.log.err("update err: {any}", .{err});
+        return -1;
+    };
+}
+
+fn update(self: *Backend) !i32 {
+    _ = self;
+    return -1;
 }
 
 pub fn logFn(

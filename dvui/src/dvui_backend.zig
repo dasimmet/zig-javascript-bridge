@@ -20,6 +20,7 @@ pub fn init(query: []const u8) !ZjbBackend {
     const doc = zjb.global("document");
     const canvas = doc.call("querySelector", .{zjb.string(query)}, zjb.Handle);
     const state = zjb.global("Object").new(.{});
+    state.set("app_update", zjb.global("undefined"));
     state.set("renderRequested", false);
     state.set("render", zjb.fnHandle("render", &Callbacks.render).call(
         "bind",
@@ -50,7 +51,23 @@ pub fn init(query: []const u8) !ZjbBackend {
     };
 }
 
+pub fn register_app_update(self: *ZjbBackend, comptime fn_name: []const u8, fn_handle: *const fn (*ZjbBackend) i32) void {
+    const bound_fn_handle = zjb.fnHandle(fn_name, &Callbacks.app_update);
+    const binding = bound_fn_handle.call(
+        "bind",
+        .{ zjb.global("undefined"), @as(i32, @intCast(@intFromPtr(fn_handle))), @as(i32, @intCast(@intFromPtr(self))) },
+        zjb.Handle,
+    );
+    self.state.set("dvui_app_update", binding);
+}
+
 pub const Callbacks = struct {
+    pub fn app_update(fn_ptr: i32, ctx_ptr: i32) callconv(.C) i32 {
+        const fnptr: *const fn (*ZjbBackend) i32 = @ptrFromInt(@as(usize, @intCast(fn_ptr)));
+        const ptr: *ZjbBackend = @ptrFromInt(@as(usize, @intCast(ctx_ptr)));
+        return fnptr(ptr);
+    }
+
     pub fn requestRender(state: zjb.Handle) callconv(.C) void {
         if (!state.get("renderRequested", bool)) {
             state.set("renderRequested", true);
@@ -88,16 +105,6 @@ pub const Callbacks = struct {
             gl.get("drawingBufferHeight", f32),
         };
 
-        gl.call("clearColor", .{ 0.0, 0.0, 0.0, 1.0 }, void);
-        gl.call("clear", .{gl.get("COLOR_BUFFER_BIT", f32)}, void);
-
-        gl.call("viewport", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
-        gl.call("scissor", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
-
-        std.log.info("render called!7", .{});
-
-        std.log.info("w: {d}, h: {d}, scale: {d}", .{ w, h, scale });
-
         //     // if the canvas changed size, adjust the backing buffer
         //     const w = gl.canvas.clientWidth;
         //     const h = gl.canvas.clientHeight;
@@ -109,8 +116,21 @@ pub const Callbacks = struct {
         //     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
         //     gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
+        gl.call("viewport", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
+        gl.call("scissor", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
+
+        gl.call("clearColor", .{ 0.0, 0.0, 0.0, 1.0 }, void);
+        gl.call("clear", .{gl.get("COLOR_BUFFER_BIT", f32)}, void);
+
         //     gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
         //     gl.clear(gl.COLOR_BUFFER_BIT);
+
+        std.log.info("w: {d}, h: {d}, scale: {d}", .{ w, h, scale });
+        const app_update_ptr = state.get("dvui_app_update", zjb.Handle);
+        if (!app_update_ptr.eql(zjb.global("undefined"))) {
+            const time_to_wait = state.call("dvui_app_update", .{}, i32);
+            if (time_to_wait == -1) @panic("WOLOLO");
+        }
     }
 };
 
