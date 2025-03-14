@@ -9,17 +9,17 @@ pub fn build(b: *std.Build) void {
     const dir = std.Build.InstallDir.bin;
 
     const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const dvui = b.addExecutable(.{
+    const dvui_example = b.addExecutable(.{
         .name = "dvui",
         .root_source_file = b.path("src/dvui.zig"),
         .target = target,
         .optimize = optimize,
     });
-    dvui.entry = .disabled;
-    dvui.rdynamic = true;
+    dvui_example.entry = .disabled;
+    dvui_example.rdynamic = true;
 
     const zjb = b.dependency("javascript_bridge", .{
-        .wasm_bindgen_bin = dvui.getEmittedBin(),
+        .wasm_bindgen_bin = dvui_example.getEmittedBin(),
     });
     const zjb_mod = zjb.module("zjb");
     const extract_out = zjb.namedLazyPath("zjb_extract.js");
@@ -31,16 +31,16 @@ pub fn build(b: *std.Build) void {
     }).module("dvui");
 
     const dvui_zjb_backend = b.createModule(.{
-        .root_source_file = b.path("src/dvui_backend.zig"),
+        .root_source_file = b.path("src/dvui_zjb_backend.zig"),
     });
     dvui_zjb_backend.addImport("zjb", zjb_mod);
     @import("dvui").linkBackend(dvui_mod, dvui_zjb_backend);
-    dvui.root_module.addImport("dvui", dvui_mod);
+    dvui_example.root_module.addImport("dvui", dvui_mod);
 
-    dvui.root_module.addImport("zjb", zjb_mod);
+    dvui_example.root_module.addImport("zjb", zjb_mod);
 
     const dvui_step = b.step("dvui", "Build the hello Zig example");
-    dvui_step.dependOn(&b.addInstallArtifact(dvui, .{
+    dvui_step.dependOn(&b.addInstallArtifact(dvui_example, .{
         .dest_dir = .{ .override = dir },
     }).step);
     dvui_step.dependOn(&b.addInstallFileWithDir(extract_out, dir, "zjb_extract.js").step);
