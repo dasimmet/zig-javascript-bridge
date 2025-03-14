@@ -2,12 +2,34 @@
 const zjb = @import("zjb");
 const std = @import("std");
 const dvui = @import("dvui");
-const WebBackend = dvui.backend;
+const Backend = dvui.backend;
 var gpa_alloc = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = gpa_alloc.allocator();
 
 var win: dvui.Window = undefined;
-var backend: WebBackend = undefined;
+var backend: Backend = undefined;
+
+export fn main() void {
+    std.log.info("msg: {s}\n", .{"Hello from Zig"});
+    const mac = false;
+
+    backend = Backend.init("#canvas") catch {
+        zjb.throwAndRelease(zjb.global("Exception").new(.{zjb.constString("Init Backend")}));
+    };
+
+    win = dvui.Window.init(
+        @src(),
+        gpa,
+        backend.backend(),
+        .{ .keybinds = if (mac) .mac else .windows },
+    ) catch {
+        zjb.global("console").call("error", .{zjb.constString("Init Window")}, void);
+        return;
+    };
+    backend.win = &win;
+
+    dvui.Examples.show_demo_window = true;
+}
 
 pub fn logFn(
     comptime message_level: std.log.Level,
@@ -42,25 +64,3 @@ pub const std_options: std.Options = .{
     // Overwrite default log handler
     .logFn = logFn,
 };
-
-export fn main() void {
-    std.log.info("msg: {s}\n", .{"Hello from Zig"});
-    const mac = false;
-
-    backend = WebBackend.init("canvas") catch {
-        zjb.global("console").call("error", .{zjb.constString("Init Backend")}, void);
-        return;
-    };
-    win = dvui.Window.init(
-        @src(),
-        gpa,
-        backend.backend(),
-        .{ .keybinds = if (mac) .mac else .windows },
-    ) catch {
-        zjb.global("console").call("error", .{zjb.constString("Init Window")}, void);
-        return;
-    };
-    WebBackend.win = &win;
-
-    dvui.Examples.show_demo_window = true;
-}

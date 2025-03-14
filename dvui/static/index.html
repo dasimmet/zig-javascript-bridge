@@ -1,11 +1,16 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Zig Javascript Bridge Demo</title>
+    <title>Zig Javascript Bridge DVUI Demo</title>
     <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon">
   </head>
-  <body>
-    <canvas id="canvas"></canvas>
+  <body style="height: 100%; margin: 0; padding: 0;">
+    <!-- canvas to attach dvui to -->
+    <canvas
+      id="canvas"
+      style="display: block; width: 100%; height: 100%; outline: none; caret-color: transparent;"
+    ></canvas>
+    <!-- defines class "Zjb" -->
     <script src="zjb_extract.js"></script>
     <script>
       const env = {
@@ -16,7 +21,7 @@
 			const zjb = new Zjb();
 
 			(function() {
-				WebAssembly.instantiateStreaming(fetch("simple.wasm"), {env: env, zjb: zjb.imports}).then(function (results) {
+				WebAssembly.instantiateStreaming(fetch("dvui.wasm"), {env: env, zjb: zjb.imports}).then(function (results) {
 					zjb.setInstance(results.instance);
 					results.instance.exports.main();
 				});

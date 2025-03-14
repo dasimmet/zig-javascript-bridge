@@ -9,19 +9,20 @@ pub fn build(b: *std.Build) void {
     const dir = std.Build.InstallDir.bin;
 
     const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const simple = b.addExecutable(.{
-        .name = "simple",
-        .root_source_file = b.path("src/simple.zig"),
+    const dvui = b.addExecutable(.{
+        .name = "dvui",
+        .root_source_file = b.path("src/dvui.zig"),
         .target = target,
         .optimize = optimize,
     });
-    simple.entry = .disabled;
-    simple.rdynamic = true;
+    dvui.entry = .disabled;
+    dvui.rdynamic = true;
 
     const zjb = b.dependency("javascript_bridge", .{
-        .wasm_bindgen_bin = simple.getEmittedBin(),
+        .wasm_bindgen_bin = dvui.getEmittedBin(),
     });
     const zjb_mod = zjb.module("zjb");
+    const extract_out = zjb.namedLazyPath("zjb_extract.js");
 
     const dvui_mod = b.dependency("dvui", .{
         .optimize = optimize,
@@ -32,20 +33,19 @@ pub fn build(b: *std.Build) void {
     });
     dvui_zjb_backend.addImport("zjb", zjb_mod);
     @import("dvui").linkBackend(dvui_mod, dvui_zjb_backend);
-    simple.root_module.addImport("dvui", dvui_mod);
+    dvui.root_module.addImport("dvui", dvui_mod);
 
-    const extract_simple_out = zjb.namedLazyPath("zjb_extract.js");
+    dvui.root_module.addImport("zjb", zjb_mod);
 
-    simple.root_module.addImport("zjb", zjb_mod);
-
-    const simple_step = b.step("simple", "Build the hello Zig example");
-    simple_step.dependOn(&b.addInstallArtifact(simple, .{
+    const dvui_step = b.step("dvui", "Build the hello Zig example");
+    dvui_step.dependOn(&b.addInstallArtifact(dvui, .{
         .dest_dir = .{ .override = dir },
     }).step);
-    simple_step.dependOn(&b.addInstallFileWithDir(extract_simple_out, dir, "zjb_extract.js").step);
-    simple_step.dependOn(&b.addInstallDirectory(.{
+    dvui_step.dependOn(&b.addInstallFileWithDir(extract_out, dir, "zjb_extract.js").step);
+    dvui_step.dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("static"),
         .install_dir = dir,
         .install_subdir = "",
     }).step);
+    b.default_step.dependOn(dvui_step);
 }

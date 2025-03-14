@@ -4,23 +4,121 @@ const std = @import("std");
 
 pub const ZjbBackend = @This();
 pub const Context = *ZjbBackend;
-pub var win: ?*dvui.Window = null;
 
+state: zjb.Handle,
+gl: zjb.Handle,
 canvas: zjb.Handle,
 encoder: zjb.Handle,
 decoder: zjb.Handle,
+win: ?*dvui.Window = null,
 
 pub fn backend(self: *ZjbBackend) dvui.Backend {
     return dvui.Backend.init(self, @This());
 }
 
-pub fn init(id: []const u8) !@This() {
+pub fn init(query: []const u8) !ZjbBackend {
     const doc = zjb.global("document");
+    const canvas = doc.call("querySelector", .{zjb.string(query)}, zjb.Handle);
+    const state = zjb.global("Object").new(.{});
+    state.set("renderRequested", false);
+    state.set("render", zjb.fnHandle("render", &Callbacks.render).call(
+        "bind",
+        .{ zjb.global("undefined"), state },
+        zjb.Handle,
+    ));
+    state.set("canvas", canvas);
+
+    const gl_args = zjb.global("Object").new(.{});
+    gl_args.set("alpha", true);
+
+    const gl = canvas.call("getContext", .{ zjb.constString("webgl2"), gl_args }, zjb.Handle);
+    state.set("gl", gl);
+    const requestRenderHandle = zjb.fnHandle("requestRender", &Callbacks.requestRender).call(
+        "bind",
+        .{ zjb.global("undefined"), state },
+        zjb.Handle,
+    );
+    zjb.global("window").call("addEventListener", .{ zjb.constString("resize"), requestRenderHandle }, void);
+    zjb.global("window").call("setTimeout", .{ requestRenderHandle, 1000 }, void);
+    Callbacks.requestRender(state);
     return .{
-        .canvas = doc.call("getElementById", .{zjb.string(id)}, zjb.Handle),
+        .state = state,
+        .gl = gl,
+        .canvas = canvas,
         .encoder = zjb.global("TextEncoder").new(.{}),
         .decoder = zjb.global("TextDecoder").new(.{}),
     };
+}
+
+pub const Callbacks = struct {
+    pub fn requestRender(state: zjb.Handle) callconv(.C) void {
+        if (!state.get("renderRequested", bool)) {
+            state.set("renderRequested", true);
+            const render_handle = state.get("render", zjb.Handle);
+            defer render_handle.release();
+            zjb.global("window").call(
+                "requestAnimationFrame",
+                .{render_handle},
+                void,
+            );
+        }
+    }
+
+    fn render(state: zjb.Handle) callconv(.C) void {
+        std.log.info("render called!1", .{});
+        state.set("renderRequested", false);
+        std.log.info("render called!2", .{});
+        const canvas = state.get("canvas", zjb.Handle);
+        defer canvas.release();
+        std.log.info("render called!3", .{});
+        const gl = state.get("gl", zjb.Handle);
+        defer gl.release();
+
+        const window = zjb.global("window");
+        const w = window.get("innerWidth", f32);
+        const h = window.get("innerHeight", f32);
+        std.log.info("render called!4", .{});
+        const scale = zjb.global("window").get("devicePixelRatio", f32);
+        std.log.info("render called!5", .{});
+        canvas.set("width", std.math.round(w * scale));
+        canvas.set("height", std.math.round(h * scale));
+        std.log.info("render called!6", .{});
+        const renderTargetSize = .{
+            gl.get("drawingBufferWidth", f32),
+            gl.get("drawingBufferHeight", f32),
+        };
+
+        gl.call("clearColor", .{ 0.0, 0.0, 0.0, 1.0 }, void);
+        gl.call("clear", .{gl.get("COLOR_BUFFER_BIT", f32)}, void);
+
+        gl.call("viewport", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
+        gl.call("scissor", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
+
+        std.log.info("render called!7", .{});
+
+        std.log.info("w: {d}, h: {d}, scale: {d}", .{ w, h, scale });
+
+        //     // if the canvas changed size, adjust the backing buffer
+        //     const w = gl.canvas.clientWidth;
+        //     const h = gl.canvas.clientHeight;
+        //     const scale = window.devicePixelRatio;
+        //     //console.log("wxh " + w + "x" + h + " scale " + scale);
+        //     gl.canvas.width = Math.round(w * scale);
+        //     gl.canvas.height = Math.round(h * scale);
+        // renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
+        //     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        //     gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+
+        //     gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
+        //     gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+};
+
+pub fn deinit(self: ZjbBackend) void {
+    self.state.release();
+    self.canvas.release();
+    self.decoder.release();
+    self.encoder.release();
 }
 
 pub fn nanoTime(self: *ZjbBackend) i128 {
