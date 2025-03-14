@@ -4,25 +4,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const gpa = std.heap.wasm_allocator;
 
-const zjb_global = blk: {
-    const global_names = .{
-        "undefined",
-        "null",
-        "window",
-        "document",
-        "naviator",
-    };
-    var kvs: [global_names.len]struct { []const u8, zjb.ConstHandle } = @splat(undefined);
-    for (global_names, 0..) |globname, it| {
-        kvs[it] = .{
-            globname,
-            zjb.global(globname),
-        };
-    }
-
-    break :blk std.StaticStringMap(zjb.ConstHandle).initComptime(kvs);
-};
-
 pub const ZjbBackend = @This();
 pub const Context = *ZjbBackend;
 

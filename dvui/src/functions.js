@@ -7,6 +7,87 @@ class functions {
         this.vertexBuffer = gl.createBuffer();
         this.using_fb = 0;
         this.next_texture_id = 1;
+
+        const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+        const vertexShaderSource_webgl2 = `# version 300 es
+
+precision mediump float;
+
+in vec4 aVertexPosition;
+in vec4 aVertexColor;
+in vec2 aTextureCoord;
+
+uniform mat4 uMatrix;
+
+out vec4 vColor;
+out vec2 vTextureCoord;
+
+void main() {
+    gl_Position = uMatrix * aVertexPosition;
+    vColor = aVertexColor / 255.0;  // normalize u8 colors to 0-1
+    vTextureCoord = aTextureCoord;
+}
+`;
+        gl.shaderSource(vertexShader, vertexShaderSource_webgl2);
+        gl.compileShader(vertexShader);
+        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+            alert(`Error compiling vertex shader: ${gl.getShaderInfoLog(vertexShader)}`);
+            gl.deleteShader(vertexShader);
+            return null;
+        }
+
+        const fragmentShaderSource_webgl2 = `# version 300 es
+
+precision mediump float;
+
+in vec4 vColor;
+in vec2 vTextureCoord;
+
+uniform sampler2D uSampler;
+uniform bool useTex;
+
+out vec4 fragColor;
+
+void main() {
+    if (useTex) {
+        fragColor = texture(uSampler, vTextureCoord) * vColor;
+    }
+    else {
+        fragColor = vColor;
+    }
+}
+`;
+        const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fragmentShader, fragmentShaderSource_webgl2);
+        gl.compileShader(fragmentShader);
+        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+            alert(`Error compiling fragment shader: ${gl.getShaderInfoLog(fragmentShader)}`);
+            gl.deleteShader(fragmentShader);
+            return null;
+        }
+
+        this.shaderProgram = gl.createProgram();
+        gl.attachShader(this.shaderProgram, vertexShader);
+        gl.attachShader(this.shaderProgram, fragmentShader);
+        gl.linkProgram(this.shaderProgram);
+
+        if (!gl.getProgramParameter(this.shaderProgram, gl.LINK_STATUS)) {
+            alert(`Error initializing shader program: ${gl.getProgramInfoLog(shaderProgram)}`);
+            return null;
+        }
+
+        this.programInfo = {
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(this.shaderProgram, "aVertexPosition"),
+                vertexColor: gl.getAttribLocation(this.shaderProgram, "aVertexColor"),
+                textureCoord: gl.getAttribLocation(this.shaderProgram, "aTextureCoord"),
+            },
+            uniformLocations: {
+                matrix: gl.getUniformLocation(this.shaderProgram, "uMatrix"),
+                uSampler: gl.getUniformLocation(this.shaderProgram, "uSampler"),
+                useTex: gl.getUniformLocation(this.shaderProgram, "useTex"),
+            },
+        };
     }
     textureCreate(pixelData, width, height, interp) {
         const gl = this.gl;
@@ -119,7 +200,8 @@ class functions {
     renderGeometry(textureId, indices, vertices, sizeof_vertex, offset_pos, offset_col, offset_uv, clip, x, y, w, h) {
         //console.log("drawClippedTriangles " + textureId + " sizeof " + sizeof_vertex + " pos " + offset_pos + " col " + offset_col + " uv " + offset_uv);
         const gl = this.gl;
-	    const renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
+        const programInfo = this.programInfo;
+        const renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
 
         //let old_scissor;
         if (clip === 1) {
@@ -161,7 +243,7 @@ class functions {
         matrix[15] = 1.0;
 
         // vertex
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.vertexAttribPointer(
             programInfo.attribLocations.vertexPosition,
             2,  // num components
@@ -173,7 +255,7 @@ class functions {
         gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 
         // color
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.vertexAttribPointer(
             programInfo.attribLocations.vertexColor,
             4,  // num components
@@ -185,7 +267,7 @@ class functions {
         gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
 
         // texture
-        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
         gl.vertexAttribPointer(
             programInfo.attribLocations.textureCoord,
             2,  // num components
@@ -197,7 +279,7 @@ class functions {
         gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
 
         // Tell WebGL to use our program when drawing
-        gl.useProgram(shaderProgram);
+        gl.useProgram(this.shaderProgram);
 
         // Set the shader uniforms
         gl.uniformMatrix4fv(
@@ -208,7 +290,7 @@ class functions {
 
         if (textureId != 0) {
             gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, textures.get(textureId)[0]);
+            gl.bindTexture(gl.TEXTURE_2D, this.textures.get(textureId)[0]);
             gl.uniform1i(programInfo.uniformLocations.useTex, 1);
         } else {
             gl.bindTexture(gl.TEXTURE_2D, null);
