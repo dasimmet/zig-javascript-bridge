@@ -6,6 +6,7 @@ const Backend = dvui.backend;
 var gpa_alloc = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = gpa_alloc.allocator();
 
+pub const panic = dvui.backend.panic;
 var win: dvui.Window = undefined;
 var backend: Backend = undefined;
 
@@ -32,7 +33,6 @@ export fn main() void {
 }
 
 pub fn app_update(ptr: *Backend) i32 {
-    std.log.info("ptr: {any}", .{ptr.*});
     return update(ptr) catch |err| {
         std.log.err("update err: {any}", .{err});
         return -1;
@@ -40,8 +40,32 @@ pub fn app_update(ptr: *Backend) i32 {
 }
 
 fn update(self: *Backend) !i32 {
+    if (self.win) |window| {
+        const nstime = window.beginWait(self.hasEvent());
+        try window.begin(nstime);
+
+        try dvui_frame(self);
+
+        const end_micros = try window.end(.{});
+        self.setCursor(window.cursorRequested());
+        self.textInputRect(window.textInputRequested());
+        const wait_event_micros = window.waitTime(end_micros, null);
+        return @intCast(@divTrunc(wait_event_micros, 1000));
+    } else {
+        return -1;
+    }
+}
+
+fn dvui_frame(self: *Backend) !void {
+    const new_content_scale: ?f32 = null;
+    const old_dist: ?f32 = null;
     _ = self;
-    return -1;
+    _ = new_content_scale;
+    _ = old_dist;
+    for (dvui.events()) |*e| {
+        std.log.info("event: {any}", .{e});
+    }
+    try dvui.Examples.demo();
 }
 
 pub fn logFn(

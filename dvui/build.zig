@@ -26,7 +26,9 @@ pub fn build(b: *std.Build) void {
 
     const dvui_mod = b.dependency("dvui", .{
         .optimize = optimize,
-    }).module("dvui_web_no_backend");
+        .target = target,
+        .disable_backends = true,
+    }).module("dvui");
 
     const dvui_zjb_backend = b.createModule(.{
         .root_source_file = b.path("src/dvui_backend.zig"),

@@ -1,12 +1,33 @@
 const dvui = @import("dvui");
 const zjb = @import("zjb");
 const std = @import("std");
+const builtin = @import("builtin");
+const gpa = std.heap.wasm_allocator;
+
+const zjb_global = blk: {
+    const global_names = .{
+        "undefined",
+        "null",
+        "window",
+        "document",
+        "naviator",
+    };
+    var kvs: [global_names.len]struct { []const u8, zjb.ConstHandle } = @splat(undefined);
+    for (global_names, 0..) |globname, it| {
+        kvs[it] = .{
+            globname,
+            zjb.global(globname),
+        };
+    }
+
+    break :blk std.StaticStringMap(zjb.ConstHandle).initComptime(kvs);
+};
 
 pub const ZjbBackend = @This();
 pub const Context = *ZjbBackend;
 
+cursor_last: dvui.enums.Cursor = .wait,
 state: zjb.Handle,
-gl: zjb.Handle,
 canvas: zjb.Handle,
 encoder: zjb.Handle,
 decoder: zjb.Handle,
@@ -27,6 +48,11 @@ pub fn init(query: []const u8) !ZjbBackend {
         .{ zjb.global("undefined"), state },
         zjb.Handle,
     ));
+    state.set("wasm_text_input", zjb.fnHandle("wasm_text_input", &Callbacks.wasm_text_input).call(
+        "bind",
+        .{ zjb.global("undefined"), state },
+        zjb.Handle,
+    ));
     state.set("canvas", canvas);
 
     const gl_args = zjb.global("Object").new(.{});
@@ -39,12 +65,13 @@ pub fn init(query: []const u8) !ZjbBackend {
         .{ zjb.global("undefined"), state },
         zjb.Handle,
     );
-    zjb.global("window").call("addEventListener", .{ zjb.constString("resize"), requestRenderHandle }, void);
-    zjb.global("window").call("setTimeout", .{ requestRenderHandle, 1000 }, void);
+    const window = zjb.global("window");
+    window.call("addEventListener", .{ zjb.constString("resize"), requestRenderHandle }, void);
+    window.call("setTimeout", .{ requestRenderHandle, 1000 }, void);
+    window.set("state", state);
     Callbacks.requestRender(state);
     return .{
         .state = state,
-        .gl = gl,
         .canvas = canvas,
         .encoder = zjb.global("TextEncoder").new(.{}),
         .decoder = zjb.global("TextDecoder").new(.{}),
@@ -61,7 +88,11 @@ pub fn register_app_update(self: *ZjbBackend, comptime fn_name: []const u8, fn_h
     self.state.set("dvui_app_update", binding);
 }
 
-pub const Callbacks = struct {
+pub const wasm = struct {
+    pub fn wasm_add_noto_font() void {}
+};
+
+const Callbacks = struct {
     pub fn app_update(fn_ptr: i32, ctx_ptr: i32) callconv(.C) i32 {
         const fnptr: *const fn (*ZjbBackend) i32 = @ptrFromInt(@as(usize, @intCast(fn_ptr)));
         const ptr: *ZjbBackend = @ptrFromInt(@as(usize, @intCast(ctx_ptr)));
@@ -82,39 +113,23 @@ pub const Callbacks = struct {
     }
 
     fn render(state: zjb.Handle) callconv(.C) void {
-        std.log.info("render called!1", .{});
+        std.log.info("render called!", .{});
         state.set("renderRequested", false);
-        std.log.info("render called!2", .{});
         const canvas = state.get("canvas", zjb.Handle);
         defer canvas.release();
-        std.log.info("render called!3", .{});
         const gl = state.get("gl", zjb.Handle);
         defer gl.release();
 
         const window = zjb.global("window");
         const w = window.get("innerWidth", f32);
         const h = window.get("innerHeight", f32);
-        std.log.info("render called!4", .{});
         const scale = zjb.global("window").get("devicePixelRatio", f32);
-        std.log.info("render called!5", .{});
         canvas.set("width", std.math.round(w * scale));
         canvas.set("height", std.math.round(h * scale));
-        std.log.info("render called!6", .{});
         const renderTargetSize = .{
             gl.get("drawingBufferWidth", f32),
             gl.get("drawingBufferHeight", f32),
         };
-
-        //     // if the canvas changed size, adjust the backing buffer
-        //     const w = gl.canvas.clientWidth;
-        //     const h = gl.canvas.clientHeight;
-        //     const scale = window.devicePixelRatio;
-        //     //console.log("wxh " + w + "x" + h + " scale " + scale);
-        //     gl.canvas.width = Math.round(w * scale);
-        //     gl.canvas.height = Math.round(h * scale);
-        // renderTargetSize = [gl.drawingBufferWidth, gl.drawingBufferHeight];
-        //     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-        //     gl.scissor(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
         gl.call("viewport", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
         gl.call("scissor", .{ 0, 0, renderTargetSize[0], renderTargetSize[1] }, void);
@@ -122,15 +137,23 @@ pub const Callbacks = struct {
         gl.call("clearColor", .{ 0.0, 0.0, 0.0, 1.0 }, void);
         gl.call("clear", .{gl.get("COLOR_BUFFER_BIT", f32)}, void);
 
-        //     gl.clearColor(0.0, 0.0, 0.0, 1.0); // Clear to black, fully opaque
-        //     gl.clear(gl.COLOR_BUFFER_BIT);
-
-        std.log.info("w: {d}, h: {d}, scale: {d}", .{ w, h, scale });
+        // std.log.info("w: {d}, h: {d}, scale: {d}", .{ w, h, scale });
         const app_update_ptr = state.get("dvui_app_update", zjb.Handle);
         if (!app_update_ptr.eql(zjb.global("undefined"))) {
             const time_to_wait = state.call("dvui_app_update", .{}, i32);
-            if (time_to_wait == -1) @panic("WOLOLO");
+            if (time_to_wait == -1) @panic("TIME TO WAIT NEGATIVE ONE");
         }
+    }
+    fn wasm_text_input(
+        state: zjb.Handle,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) callconv(.C) void {
+        const arr = zjb.global("Array").new(.{ x, y, w, h });
+        defer arr.release();
+        state.set("text_input", arr);
     }
 };
 
@@ -139,6 +162,26 @@ pub fn deinit(self: ZjbBackend) void {
     self.canvas.release();
     self.decoder.release();
     self.encoder.release();
+}
+
+pub fn panic(
+    msg: []const u8,
+    maybe_trace: ?*std.builtin.StackTrace,
+    first_trace_addr: ?usize,
+) noreturn {
+    @branchHint(.cold);
+    _ = first_trace_addr;
+    if (maybe_trace) |trace| {
+        std.log.err("trace: {}", .{trace});
+    }
+    zjb.global("console").call("error", .{
+        zjb.constString("zjb zig panic! unreleasedHandleCount:"),
+        @as(i32, @intCast(zjb.unreleasedHandleCount())),
+    }, void);
+    zjb.throwAndRelease(zjb.global("Error").new(.{
+        zjb.string(msg),
+    }));
+    unreachable;
 }
 
 pub fn nanoTime(self: *ZjbBackend) i128 {
@@ -178,6 +221,10 @@ pub fn windowSize(self: *ZjbBackend) dvui.Size {
 pub fn contentScale(self: *ZjbBackend) f32 {
     _ = self;
     return 1.0;
+}
+
+pub fn hasEvent(_: *ZjbBackend) bool {
+    return false;
 }
 
 pub fn drawClippedTriangles(_: *ZjbBackend, texture: ?dvui.Texture, vtx: []const dvui.Vertex, idx: []const u16, maybe_clipr: ?dvui.Rect) void {
@@ -234,14 +281,12 @@ pub fn textureDestroy(_: *ZjbBackend, texture: dvui.Texture) void {
     // wasm.wasm_textureDestroy(@as(u32, @intFromPtr(texture.ptr)));
 }
 
-pub fn textInputRect(_: *ZjbBackend, rect: ?dvui.Rect) void {
-    _ = rect;
-    @panic("NOT IMPLEMENTED");
-    // if (rect) |r| {
-    //     wasm.wasm_text_input(r.x, r.y, r.w, r.h);
-    // } else {
-    //     wasm.wasm_text_input(0, 0, 0, 0);
-    // }
+pub fn textInputRect(self: *ZjbBackend, rect: ?dvui.Rect) void {
+    if (rect) |r| {
+        self.state.call("wasm_text_input", .{ r.x, r.y, r.w, r.h }, void);
+    } else {
+        self.state.call("wasm_text_input", .{ 0, 0, 0, 0 }, void);
+    }
 }
 
 pub fn clipboardText(self: *ZjbBackend) error{OutOfMemory}![]const u8 {
@@ -288,22 +333,135 @@ pub fn setCursor(self: *ZjbBackend, cursor: dvui.enums.Cursor) void {
     if (cursor != self.cursor_last) {
         self.cursor_last = cursor;
 
-        const name: []const u8 = switch (cursor) {
-            .arrow => "default",
-            .ibeam => "text",
-            .wait => "wait",
-            .wait_arrow => "progress",
-            .crosshair => "crosshair",
-            .arrow_nw_se => "nwse-resize",
-            .arrow_ne_sw => "nesw-resize",
-            .arrow_w_e => "ew-resize",
-            .arrow_n_s => "ns-resize",
-            .arrow_all => "move",
-            .bad => "not-allowed",
-            .hand => "pointer",
+        const name = switch (cursor) {
+            .arrow => zjb.constString("default"),
+            .ibeam => zjb.constString("text"),
+            .wait => zjb.constString("wait"),
+            .wait_arrow => zjb.constString("progress"),
+            .crosshair => zjb.constString("crosshair"),
+            .arrow_nw_se => zjb.constString("nwse-resize"),
+            .arrow_ne_sw => zjb.constString("nesw-resize"),
+            .arrow_w_e => zjb.constString("ew-resize"),
+            .arrow_n_s => zjb.constString("ns-resize"),
+            .arrow_all => zjb.constString("move"),
+            .bad => zjb.constString("not-allowed"),
+            .hand => zjb.constString("pointer"),
         };
-        _ = name;
-        @panic("NOT IMPLEMENTED");
-        // wasm.wasm_cursor(name.ptr, name.len);
+        const canvas_style = self.canvas.get("style", zjb.Handle);
+        defer canvas_style.release();
+        canvas_style.set("cursor", name);
     }
+}
+
+pub export fn dvui_c_panic(msg: [*c]const u8) noreturn {
+    const msg_str = zjb.string(std.mem.sliceTo(msg, 0));
+    zjb.global("console").call("error", .{
+        zjb.constString("dvui_c_panic! unreleasedHandleCount:"),
+        @as(i32, @intCast(zjb.unreleasedHandleCount())),
+    }, void);
+    zjb.throwAndRelease(zjb.global("Error").new(.{
+        msg_str,
+    }));
+    unreachable;
+}
+
+export fn dvui_c_sqrt(x: f64) f64 {
+    return @sqrt(x);
+}
+
+export fn dvui_c_pow(x: f64, y: f64) f64 {
+    return @exp(@log(x) * y);
+}
+
+export fn dvui_c_ldexp(x: f64, n: c_int) f64 {
+    return x * @exp2(@as(f64, @floatFromInt(n)));
+}
+
+export fn dvui_c_floor(x: f64) f64 {
+    return @floor(x);
+}
+
+export fn dvui_c_ceil(x: f64) f64 {
+    return @ceil(x);
+}
+
+export fn dvui_c_fmod(x: f64, y: f64) f64 {
+    return @mod(x, y);
+}
+
+export fn dvui_c_cos(x: f64) f64 {
+    return @cos(x);
+}
+
+export fn dvui_c_acos(x: f64) f64 {
+    return std.math.acos(x);
+}
+
+export fn dvui_c_fabs(x: f64) f64 {
+    return @abs(x);
+}
+
+export fn dvui_c_strlen(x: [*c]const u8) usize {
+    return std.mem.len(x);
+}
+
+export fn dvui_c_memcpy(dest: [*c]u8, src: [*c]const u8, n: usize) [*c]u8 {
+    @memcpy(dest[0..n], src[0..n]);
+    return dest;
+}
+
+export fn dvui_c_memmove(dest: [*c]u8, src: [*c]const u8, n: usize) [*c]u8 {
+    //std.log.debug("dvui_c_memmove dest {*} src {*} {d}", .{ dest, src, n });
+    const buf = dvui.currentWindow().arena().alloc(u8, n) catch unreachable;
+    @memcpy(buf, src[0..n]);
+    @memcpy(dest[0..n], buf);
+    return dest;
+}
+
+export fn dvui_c_memset(dest: [*c]u8, x: u8, n: usize) [*c]u8 {
+    @memset(dest[0..n], x);
+    return dest;
+}
+
+export fn dvui_c_alloc(size: usize) ?*anyopaque {
+    const buffer = gpa.alignedAlloc(u8, 8, size + 8) catch {
+        //std.log.debug("dvui_c_alloc {d} failed", .{size});
+        return null;
+    };
+    std.mem.writeInt(u64, buffer[0..@sizeOf(u64)], buffer.len, builtin.cpu.arch.endian());
+    //std.log.debug("dvui_c_alloc {*} {d}", .{ buffer.ptr + 8, size });
+    return buffer.ptr + 8;
+}
+
+pub export fn dvui_c_free(ptr: ?*anyopaque) void {
+    const buffer = @as([*]align(8) u8, @alignCast(@ptrCast(ptr orelse return))) - 8;
+    const len = std.mem.readInt(u64, buffer[0..@sizeOf(u64)], builtin.cpu.arch.endian());
+    //std.log.debug("dvui_c_free {?*} {d}", .{ ptr, len - 8 });
+
+    gpa.free(buffer[0..@intCast(len)]);
+}
+
+export fn dvui_c_realloc_sized(ptr: ?*anyopaque, oldsize: usize, newsize: usize) ?*anyopaque {
+    //_ = oldsize;
+    //std.log.debug("dvui_c_realloc_sized {d} {d}", .{ oldsize, newsize });
+
+    if (ptr == null) {
+        return dvui_c_alloc(newsize);
+    }
+
+    //const buffer = @as([*]u8, @ptrCast(ptr.?)) - 8;
+    //const len = std.mem.readInt(u64, buffer[0..@sizeOf(u64)], builtin.cpu.arch.endian());
+
+    //const slice = buffer[0..@intCast(len)];
+    //std.log.debug("dvui_c_realloc_sized buffer {*} {d}", .{ ptr, len });
+
+    //_ = gpa.resize(slice, newsize + 16);
+    const newptr = dvui_c_alloc(newsize);
+    const newbuf = @as([*]u8, @ptrCast(newptr));
+    @memcpy(newbuf[0..oldsize], @as([*]u8, @ptrCast(ptr))[0..oldsize]);
+    dvui_c_free(ptr);
+    return newptr;
+
+    //std.mem.writeInt(usize, slice[0..@sizeOf(usize)], slice.len, builtin.cpu.arch.endian());
+    //return slice.ptr + 16;
 }
