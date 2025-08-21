@@ -11,15 +11,15 @@ pub fn main() !void {
         return ExtractError.BadArguments;
     }
 
-    var importFunctions = std.ArrayList([]const u8).init(alloc);
-    defer importFunctions.deinit();
-    var exportFunctions = std.ArrayList([]const u8).init(alloc);
-    defer exportFunctions.deinit();
-    var exportGlobals = std.ArrayList([]const u8).init(alloc);
-    defer exportGlobals.deinit();
+    var importFunctions: std.ArrayList([]const u8) = .{};
+    defer importFunctions.deinit(alloc);
+    var exportFunctions: std.ArrayList([]const u8) = .{};
+    defer exportFunctions.deinit(alloc);
+    var exportGlobals: std.ArrayList([]const u8) = .{};
+    defer exportGlobals.deinit(alloc);
 
     {
-        var file = try std.fs.openFileAbsolute(args[3], .{});
+        var file = try std.fs.cwd().openFile(args[3], .{});
         defer file.close();
 
         const bytes = try file.readToEndAlloc(alloc, std.math.maxInt(usize));
@@ -58,7 +58,7 @@ pub fn main() !void {
                         if (desc_type != 0) { // Not a function?
                             return ExtractError.ImportTypeNotSupported;
                         }
-                        try importFunctions.append(try alloc.dupe(u8, name));
+                        try importFunctions.append(alloc, try alloc.dupe(u8, name));
                     }
                 }
             } else if (section_id == 7) {
@@ -72,9 +72,9 @@ pub fn main() !void {
                     _ = desc_index;
 
                     if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fn")) {
-                        try exportFunctions.append(try alloc.dupe(u8, name));
+                        try exportFunctions.append(alloc, try alloc.dupe(u8, name));
                     } else if (std.mem.startsWith(u8, name, "zjb_global")) {
-                        try exportGlobals.append(try alloc.dupe(u8, name));
+                        try exportGlobals.append(alloc, try alloc.dupe(u8, name));
                     }
                 }
             } else {
@@ -89,7 +89,9 @@ pub fn main() !void {
 
     var out_file = try std.fs.createFileAbsolute(args[1], .{});
     defer out_file.close();
-    const writer = out_file.writer();
+    var writer_buffer: [1024]u8 = undefined;
+    var file_writer = out_file.writer(&writer_buffer);
+    const writer = &file_writer.interface;
 
     try writer.writeAll("const ");
     try writer.writeAll(args[2]);
@@ -117,8 +119,8 @@ pub fn main() !void {
     );
 
     var lastFunc: []const u8 = "";
-    var func_args = std.ArrayList(ArgType).init(alloc);
-    defer func_args.deinit();
+    var func_args: std.ArrayList(ArgType) = .{};
+    defer func_args.deinit(alloc);
 
     implement_functions: for (importFunctions.items) |func| {
         if (std.mem.eql(u8, lastFunc, func)) {
@@ -171,7 +173,7 @@ pub fn main() !void {
 
         if (method != .get) {
             while (!(np.maybe("_") or np.slice.len == 0)) {
-                try func_args.append(try np.mustArgType());
+                try func_args.append(alloc, try np.mustArgType());
             }
         }
         switch (method) {
@@ -283,8 +285,8 @@ pub fn main() !void {
 
     try writer.writeAll("    this.exports = {\n");
 
-    var export_names = std.ArrayList([]const u8).init(alloc);
-    defer export_names.deinit();
+    var export_names: std.ArrayList([]const u8) = .{};
+    defer export_names.deinit(alloc);
 
     for (exportFunctions.items) |func| {
         func_args.clearRetainingCapacity();
@@ -293,14 +295,14 @@ pub fn main() !void {
         try np.must("zjb_fn_");
 
         while (!(np.maybe("_") or np.slice.len == 0)) {
-            try func_args.append(try np.mustArgType());
+            try func_args.append(alloc, try np.mustArgType());
         }
 
         const ret_type = try np.mustArgType();
         try np.must("_");
 
         const name = np.slice;
-        try export_names.append(name);
+        try export_names.append(alloc, name);
 
         //////////////////////////////////
 
@@ -467,6 +469,7 @@ pub fn main() !void {
         }
     }
 
+    try file_writer.end();
     try out_file.sync();
 }
 
