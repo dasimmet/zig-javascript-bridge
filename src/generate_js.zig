@@ -18,12 +18,12 @@ pub fn main() !void {
     else
         return ExtractError.ExpectedBoolArgument;
 
-    var importFunctions = std.ArrayList([]const u8).init(alloc);
-    defer importFunctions.deinit();
-    var exportFunctions = std.ArrayList([]const u8).init(alloc);
-    defer exportFunctions.deinit();
-    var exportGlobals = std.ArrayList([]const u8).init(alloc);
-    defer exportGlobals.deinit();
+    var importFunctions = std.ArrayList([]const u8).empty;
+    defer importFunctions.deinit(alloc);
+    var exportFunctions = std.ArrayList([]const u8).empty;
+    defer exportFunctions.deinit(alloc);
+    var exportGlobals = std.ArrayList([]const u8).empty;
+    defer exportGlobals.deinit(alloc);
 
     {
         var file = try std.fs.cwd().openFile(args[3], .{});
