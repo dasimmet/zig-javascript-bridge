@@ -178,7 +178,7 @@ pub const Handle = enum(i32) {
     pub fn get(handle: Handle, comptime field: []const u8, comptime RetType: type) RetType {
         validateFromJavascriptReturnType(RetType);
         const name = comptime "get_" ++ shortTypeName(RetType) ++ "_" ++ field;
-        const F = fn (Handle) callconv(.C) mapType(RetType);
+        const F = fn (Handle) callconv(.c) mapType(RetType);
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
         return @call(.auto, f, .{handle});
     }
@@ -186,7 +186,7 @@ pub const Handle = enum(i32) {
     pub fn set(handle: Handle, comptime field: []const u8, value: anytype) void {
         validateToJavascriptArgumentType(@TypeOf(value));
         const name = comptime "set_" ++ shortTypeName(@TypeOf(value)) ++ "_" ++ field;
-        const F = fn (mapType(@TypeOf(value)), Handle) callconv(.C) void;
+        const F = fn (mapType(@TypeOf(value)), Handle) callconv(.c) void;
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
         @call(.auto, f, .{ value, handle });
     }
@@ -195,7 +195,7 @@ pub const Handle = enum(i32) {
         validateToJavascriptArgumentType(@TypeOf(arg));
         validateFromJavascriptReturnType(RetType);
         const name = comptime "indexGet_" ++ shortTypeName(@TypeOf(arg)) ++ "_" ++ shortTypeName(RetType);
-        const F = fn (mapType(@TypeOf(arg)), Handle) callconv(.C) mapType(RetType);
+        const F = fn (mapType(@TypeOf(arg)), Handle) callconv(.c) mapType(RetType);
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
         return @call(.auto, f, .{ arg, handle });
     }
@@ -204,7 +204,7 @@ pub const Handle = enum(i32) {
         validateToJavascriptArgumentType(@TypeOf(arg));
         validateToJavascriptArgumentType(@TypeOf(value));
         const name = comptime "indexSet_" ++ shortTypeName(@TypeOf(arg)) ++ shortTypeName(@TypeOf(value));
-        const F = fn (mapType(@TypeOf(arg)), mapType(@TypeOf(value)), Handle) callconv(.C) void;
+        const F = fn (mapType(@TypeOf(arg)), mapType(@TypeOf(value)), Handle) callconv(.c) void;
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
         @call(.auto, f, .{ arg, value, handle });
     }
@@ -248,7 +248,7 @@ pub const Handle = enum(i32) {
         }
 
         const F = @Type(.{ .@"fn" = .{
-            .calling_convention = .C,
+            .calling_convention = .c,
             .is_generic = false,
             .is_var_args = false,
             .return_type = RetType,

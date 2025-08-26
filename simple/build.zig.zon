@@ -6,6 +6,10 @@
         .javascript_bridge = .{
             .path = "../",
         },
+        .demo_webserver = .{
+            .url = "git+https://github.com/scottredig/zig-demo-webserver.git#e280a853a6b35708d41a8eabf95fbf794facfd35",
+            .hash = "demo_webserver-0.0.0-s8bjD-grAAAXVSjPRtJCdG1GAsA9H7uy2pJvhZWsKoaT",
+        },
     },
     .paths = .{
         "build.zig",

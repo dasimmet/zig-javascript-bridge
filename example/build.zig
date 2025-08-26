@@ -1,15 +1,17 @@
 const std = @import("std");
 const LazyPath = std.Build.LazyPath;
+const demo_webserver = @import("demo_webserver");
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
-    const dir = std.Build.InstallDir.bin;
 
     const example = b.addExecutable(.{
         .name = "example",
-        .root_source_file = b.path("src/main.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .optimize = optimize,
+        }),
     });
     example.entry = .disabled;
     example.rdynamic = true;
@@ -24,14 +26,18 @@ pub fn build(b: *std.Build) void {
 
     example.root_module.addImport("zjb", zjb.module("zjb"));
 
-    const example_step = b.step("example", "Build the hello Zig example");
-    example_step.dependOn(&b.addInstallArtifact(example, .{
+    const dir = std.Build.InstallDir.prefix;
+    b.getInstallStep().dependOn(&b.addInstallArtifact(example, .{
         .dest_dir = .{ .override = dir },
     }).step);
-    example_step.dependOn(&b.addInstallFileWithDir(extract_example_out, dir, "zjb_extract.js").step);
-    example_step.dependOn(&b.addInstallDirectory(.{
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(extract_example_out, dir, "zjb_extract.js").step);
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("static"),
         .install_dir = dir,
         .install_subdir = "",
     }).step);
+
+    const run_demo_server = demo_webserver.runDemoServer(b, b.getInstallStep(), .{});
+    const serve = b.step("serve", "serve website locally");
+    serve.dependOn(run_demo_server);
 }
