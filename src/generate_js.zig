@@ -5,9 +5,16 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const io = init.io;
 
-    if (args.len != 4) {
+    if (args.len != 5) {
         return ExtractError.BadArguments;
     }
+
+    const is_module = if (std.mem.eql(u8, args[4], "true"))
+        true
+    else if (std.mem.eql(u8, args[4], "false"))
+        false
+    else
+        return ExtractError.ExpectedBoolArgument;
 
     var importFunctions: std.ArrayList([]const u8) = .empty;
     defer importFunctions.deinit(gpa);
@@ -462,6 +469,12 @@ pub fn main(init: std.process.Init) !void {
 
     try writer.writeAll("};\n"); // end class
 
+    if (is_module) {
+        try writer.writeAll("export { ");
+        try writer.writeAll(args[2]);
+        try writer.writeAll(" };\n");
+    }
+
     std.sort.insertion([]const u8, export_names.items, {}, strBefore);
     if (export_names.items.len > 1) {
         for (0..export_names.items.len - 1) |i| {
@@ -500,6 +513,7 @@ const ExtractError = error{
     WasmWrongVersion,
     ImportTypeNotSupported,
     InvalidExportedName,
+    ExpectedBoolArgument,
 };
 
 fn strBefore(_: void, lhs: []const u8, rhs: []const u8) bool {
