@@ -1,10 +1,9 @@
 const std = @import("std");
 const demo_webserver = @import("demo_webserver");
+const LazyPath = std.Build.LazyPath;
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
-
-    const zjb = b.dependency("javascript_bridge", .{});
 
     const example = b.addExecutable(.{
         .name = "example",
@@ -14,14 +13,18 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    example.root_module.addImport("zjb", zjb.module("zjb"));
     example.entry = .disabled;
     example.rdynamic = true;
 
-    const extract_example = b.addRunArtifact(zjb.artifact("generate_js"));
-    const extract_example_out = extract_example.addOutputFileArg("zjb_extract.js");
-    extract_example.addArg("Zjb"); // Name of js class.
-    extract_example.addArtifactArg(example);
+    const js_basename = "zjb_extract.js";
+    const zjb = b.dependency("javascript_bridge", .{
+        .wasm_bindgen_bin = example.getEmittedBin(),
+        .wasm_bindgen_name = @as([]const u8, js_basename),
+        .wasm_bindgen_classname = @as([]const u8, "Zjb"),
+    });
+    const extract_example_out = zjb.namedLazyPath(js_basename);
+
+    example.root_module.addImport("zjb", zjb.module("zjb"));
 
     const dir = std.Build.InstallDir.prefix;
     b.getInstallStep().dependOn(&b.addInstallArtifact(example, .{

@@ -5,8 +5,6 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const dir = std.Build.InstallDir.prefix;
 
-    const zjb = b.dependency("javascript_bridge", .{});
-
     const simple = b.addExecutable(.{
         .name = "simple",
         .root_module = b.createModule(.{
@@ -15,14 +13,15 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    simple.root_module.addImport("zjb", zjb.module("zjb"));
     simple.entry = .disabled;
     simple.rdynamic = true;
 
-    const extract_simple = b.addRunArtifact(zjb.artifact("generate_js"));
-    const extract_simple_out = extract_simple.addOutputFileArg("zjb_extract.js");
-    extract_simple.addArg("Zjb"); // Name of js class.
-    extract_simple.addArtifactArg(simple);
+    const zjb = b.dependency("javascript_bridge", .{
+        .wasm_bindgen_bin = simple.getEmittedBin(),
+    });
+    const extract_simple_out = zjb.namedLazyPath("zjb_extract.js");
+
+    simple.root_module.addImport("zjb", zjb.module("zjb"));
 
     const install_step = b.getInstallStep();
     install_step.dependOn(&b.addInstallArtifact(simple, .{
