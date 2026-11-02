@@ -1,5 +1,7 @@
 const std = @import("std");
 const demo_webserver = @import("demo_webserver");
+const javascript_bridge = @import("javascript_bridge");
+
 const LazyPath = std.Build.LazyPath;
 
 pub fn build(b: *std.Build) void {
@@ -17,12 +19,13 @@ pub fn build(b: *std.Build) void {
     example.rdynamic = true;
 
     const js_basename = "zjb_extract.js";
-    const zjb = b.dependency("javascript_bridge", .{
-        .wasm_bindgen_bin = example.getEmittedBin(),
-        .wasm_bindgen_name = @as([]const u8, js_basename),
-        .wasm_bindgen_classname = @as([]const u8, "Zjb"),
+    const zjb = b.dependency("javascript_bridge", .{});
+    const extract_example_out = javascript_bridge.bindgen(b, .{
+        .basename = js_basename,
+        .wasm = example.getEmittedBin(),
+        .classname = "Zjb",
+        .minify = b.option(bool, "minifyjs", "minify the js bindings") orelse false,
     });
-    const extract_example_out = zjb.namedLazyPath(js_basename);
 
     example.root_module.addImport("zjb", zjb.module("zjb"));
 

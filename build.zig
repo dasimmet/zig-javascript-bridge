@@ -1,6 +1,8 @@
 const std = @import("std");
 const LazyPath = std.Build.LazyPath;
 
+pub const ModuleStyle = @import("src/generate_js.zig").ModuleStyle;
+
 pub fn build(b: *std.Build) void {
     /////////////////////////////////////////////////////////////
     // generate js exe
@@ -19,50 +21,41 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(generate_js);
 
     /////////////////////////////////////////////////////////////
+    // tests
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/generate_js.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const run_tests = b.addRunArtifact(tests);
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&run_tests.step);
+
+    /////////////////////////////////////////////////////////////
     // module
 
     _ = b.addModule("zjb", .{
         .root_source_file = b.path("src/zjb.zig"),
     });
+}
 
-    // Generate JS for binary supplied through options
-    // usage from build.zig through the Dependency Interface:
-    //
-    // const js_basename = "zjb_extract.js";
-    // const zjb = b.dependency("zjb", .{
-    //     .wasm_bindgen_bin = example.getEmittedBin(),
-    //     .wasm_bindgen_name = @as([]const u8, js_basename),
-    //     .wasm_bindgen_classname = @as([]const u8, "Zjb"),
-    // });
-    // const extract_example_out = zjb.namedLazyPath(js_basename);
-    //
-    const wasm_bindgen_name = b.option(
-        []const u8,
-        "wasm_bindgen_name",
-        "js Bindings Basename",
-    ) orelse "zjb_extract.js";
-    const wasm_bindgen_classname = b.option(
-        []const u8,
-        "wasm_bindgen_classname",
-        "js Bindings Classname",
-    ) orelse "Zjb";
-    const wasm_bindgen_bin = b.option(
-        LazyPath,
-        "wasm_bindgen_bin",
-        "wasm Binary for Binding Generation",
-    );
-    const wasm_bindgen_module = b.option(
-        bool,
-        "wasm_bindgen_module",
-        "output an ES6 module export",
-    ) orelse false;
+pub const BindgenOptions = struct {
+    wasm: LazyPath,
+    basename: []const u8 = "zjb_bindings.js",
+    classname: []const u8 = "Zjb",
+    module_style: ModuleStyle = .js,
+    minify: bool = false,
+};
 
-    if (wasm_bindgen_bin) |wasm_bin| {
-        const extract_js = b.addRunArtifact(generate_js);
-        const extract_js_out = extract_js.addOutputFileArg(wasm_bindgen_name);
-        extract_js.addArg(wasm_bindgen_classname);
-        extract_js.addFileArg(wasm_bin);
-        b.addNamedLazyPath(wasm_bindgen_name, extract_js_out);
-        extract_js.addArg(if (wasm_bindgen_module) "true" else "false");
-    }
+pub fn bindgen(b: *std.Build, opt: BindgenOptions) LazyPath {
+    const dep = b.dependencyFromBuildZig(@This(), .{});
+    const generate_js = dep.artifact("generate_js");
+    const run = b.addRunArtifact(generate_js);
+    const out = run.addPrefixedOutputFileArg("--output=", opt.basename);
+    run.addPrefixedFileArg("--wasm=", opt.wasm);
+    run.addArg(b.fmt("--class={s}", .{opt.classname}));
+    run.addArg(b.fmt("--module-style={s}", .{@tagName(opt.module_style)}));
+    run.addArg(b.fmt("--minify={s}", .{if (opt.minify) "true" else "false"}));
+    return out;
 }

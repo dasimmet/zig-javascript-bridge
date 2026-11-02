@@ -1,20 +1,106 @@
 const std = @import("std");
 
+pub const ModuleStyle = enum {
+    /// plain js script
+    js,
+    /// es6 module with class export
+    es6,
+
+    pub fn fromString(str: []const u8) ?ModuleStyle {
+        inline for (std.enums.values(ModuleStyle)) |value| {
+            if (std.mem.eql(u8, str, @tagName(value))) return value;
+        }
+        return null;
+    }
+};
+
+pub const Options = struct {
+    out_path: []const u8 = "",
+    wasm_path: []const u8 = "",
+    classname: []const u8 = "Zjb",
+    module_style: ModuleStyle = .js,
+    minify: bool = false,
+
+    pub fn parse(args: []const [:0]const u8) !Options {
+        var opts = Options{};
+        if (args.len < 1) return ExtractError.BadArguments;
+
+        for (args[1..]) |arg| {
+            if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+                return error.ParseArgsHelp;
+            } else if (std.mem.startsWith(u8, arg, "--output=")) {
+                opts.out_path = arg["--output=".len..];
+            } else if (std.mem.startsWith(u8, arg, "--wasm=")) {
+                opts.wasm_path = arg["--wasm=".len..];
+            } else if (std.mem.startsWith(u8, arg, "--class=")) {
+                opts.classname = arg["--class=".len..];
+            } else if (std.mem.startsWith(u8, arg, "--module-style=")) {
+                const val = arg["--module-style=".len..];
+                opts.module_style = ModuleStyle.fromString(val) orelse return ExtractError.InvalidModuleType;
+            } else if (std.mem.startsWith(u8, arg, "--minify=")) {
+                const val = arg["--minify=".len..];
+                if (std.mem.eql(u8, val, "true") or std.mem.eql(u8, val, "1")) {
+                    opts.minify = true;
+                } else if (std.mem.eql(u8, val, "false") or std.mem.eql(u8, val, "0")) {
+                    opts.minify = false;
+                } else {
+                    return ExtractError.BadArguments;
+                }
+            } else {
+                std.log.err("Unknown argument: {s}", .{arg});
+                return ExtractError.BadArguments;
+            }
+        }
+
+        if (opts.out_path.len == 0) {
+            std.log.err("Missing required --output argument", .{});
+            return ExtractError.BadArguments;
+        }
+        if (opts.wasm_path.len == 0) {
+            std.log.err("Missing required --wasm argument", .{});
+            return ExtractError.BadArguments;
+        }
+
+        return opts;
+    }
+};
+
+pub fn printUsage() void {
+    std.debug.print(
+        \\Usage: generate_js [options]
+        \\
+        \\Options:
+        \\  --out=<path>          Output JavaScript file path (also: -o)
+        \\  --wasm=<path>         Input WebAssembly binary file path (also: -i, --input)
+        \\  --class=<name>        JavaScript class name (default: Zjb, also: -c)
+        \\  --module=<type>       Module export: none, es6 (default: none, also: -m, --is_module)
+        \\  --minify[=<bool>]     Produce minified JavaScript
+        \\  -h, --help            Show this help message
+        \\
+    , .{});
+}
+
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const io = init.io;
 
-    if (args.len != 5) {
-        return ExtractError.BadArguments;
-    }
+    const opts = Options.parse(args) catch |err| switch (err) {
+        error.ParseArgsHelp => {
+            printUsage();
+            return;
+        },
+        else => {
+            printUsage();
+            return err;
+        },
+    };
 
-    const is_module = if (std.mem.eql(u8, args[4], "true"))
-        true
-    else if (std.mem.eql(u8, args[4], "false"))
-        false
-    else
-        return ExtractError.ExpectedBoolArgument;
+    const module_style = opts.module_style;
+    const classname = opts.classname;
+    const wasm_path = opts.wasm_path;
+    const out_path = opts.out_path;
+    const minify = opts.minify;
 
     var importFunctions: std.ArrayList([]const u8) = .empty;
     defer importFunctions.deinit(gpa);
@@ -29,7 +115,7 @@ pub fn main(init: std.process.Init) !void {
     {
         // Read whole file instead of streaming, since the code below needs to hold multiple
         // byte buffers at once before knowing if things need to be dup'd.
-        const bytes = try std.Io.Dir.cwd().readFileAlloc(io, args[3], gpa, .unlimited);
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(io, wasm_path, gpa, .unlimited);
         defer gpa.free(bytes);
         var r: std.Io.Reader = .fixed(bytes);
 
@@ -97,14 +183,12 @@ pub fn main(init: std.process.Init) !void {
     std.sort.insertion([]const u8, exportFunctions.items, {}, strBefore);
     std.sort.insertion([]const u8, exportGlobals.items, {}, strBefore);
 
-    var out_file = try std.Io.Dir.createFileAbsolute(io, args[1], .{});
-    defer out_file.close(io);
-    var writer_buffer: [1024]u8 = undefined;
-    var file_writer = out_file.writer(io, &writer_buffer);
-    const writer = &file_writer.interface;
+    var aw = std.Io.Writer.Allocating.init(gpa);
+    defer aw.deinit();
+    const writer = &aw.writer;
 
     try writer.writeAll("const ");
-    try writer.writeAll(args[2]);
+    try writer.writeAll(classname);
     try writer.writeAll(
         \\ = class {
         \\  new_handle(value) {
@@ -469,10 +553,13 @@ pub fn main(init: std.process.Init) !void {
 
     try writer.writeAll("};\n"); // end class
 
-    if (is_module) {
-        try writer.writeAll("export { ");
-        try writer.writeAll(args[2]);
-        try writer.writeAll(" };\n");
+    switch (module_style) {
+        .js => {},
+        .es6 => {
+            try writer.writeAll("export { ");
+            try writer.writeAll(classname);
+            try writer.writeAll(" };\n");
+        },
     }
 
     std.sort.insertion([]const u8, export_names.items, {}, strBefore);
@@ -483,6 +570,24 @@ pub fn main(init: std.process.Init) !void {
                 std.process.exit(1);
             }
         }
+    }
+
+    var out_file = if (std.fs.path.isAbsolute(out_path))
+        try std.Io.Dir.createFileAbsolute(io, out_path, .{})
+    else
+        try std.Io.Dir.cwd().createFile(io, out_path, .{});
+    defer out_file.close(io);
+
+    var writer_buffer: [1024]u8 = undefined;
+    var file_writer = out_file.writer(io, &writer_buffer);
+    const file_w = &file_writer.interface;
+
+    if (minify) {
+        const minified = try minifyJs(gpa, aw.writer.buffered());
+        defer gpa.free(minified);
+        try file_w.writeAll(minified);
+    } else {
+        try file_w.writeAll(aw.writer.buffered());
     }
 
     try file_writer.end();
@@ -506,7 +611,7 @@ fn writeArg(writer: anytype, arg: ArgType, i: usize) !void {
     }
 }
 
-const ExtractError = error{
+pub const ExtractError = error{
     BadArguments,
     UnexpectedEndOfFile,
     WasmWrongMagic,
@@ -514,6 +619,7 @@ const ExtractError = error{
     ImportTypeNotSupported,
     InvalidExportedName,
     ExpectedBoolArgument,
+    InvalidModuleType,
 };
 
 fn strBefore(_: void, lhs: []const u8, rhs: []const u8) bool {
@@ -662,3 +768,136 @@ const builtins = [_][]const u8{
     \\      },
     ,
 };
+
+fn isWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_' or c == '$';
+}
+
+pub fn minifyJs(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
+    var result: std.ArrayList(u8) = .empty;
+    errdefer result.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < source.len) {
+        const c = source[i];
+
+        // 1. Strings: single-quote, double-quote, or template literal
+        if (c == '"' or c == '\'' or c == '`') {
+            const quote = c;
+            try result.append(allocator, quote);
+            i += 1;
+            while (i < source.len) {
+                const sc = source[i];
+                try result.append(allocator, sc);
+                i += 1;
+                if (sc == '\\' and i < source.len) {
+                    try result.append(allocator, source[i]);
+                    i += 1;
+                } else if (sc == quote) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        // 2. Comments: single-line // or multi-line /* */
+        if (c == '/' and i + 1 < source.len) {
+            if (source[i + 1] == '/') {
+                i += 2;
+                while (i < source.len and source[i] != '\n') : (i += 1) {}
+                continue;
+            } else if (source[i + 1] == '*') {
+                i += 2;
+                while (i + 1 < source.len and !(source[i] == '*' and source[i + 1] == '/')) : (i += 1) {}
+                if (i + 1 < source.len) i += 2;
+                continue;
+            }
+        }
+
+        // 3. Whitespace
+        if (std.ascii.isWhitespace(c)) {
+            var next_i = i + 1;
+            while (next_i < source.len and std.ascii.isWhitespace(source[next_i])) : (next_i += 1) {}
+            if (next_i < source.len) {
+                const next_c = source[next_i];
+                if (result.items.len > 0) {
+                    const prev_c = result.items[result.items.len - 1];
+                    if (isWordChar(prev_c) and isWordChar(next_c)) {
+                        try result.append(allocator, ' ');
+                    } else if ((prev_c == '+' and next_c == '+') or (prev_c == '-' and next_c == '-')) {
+                        try result.append(allocator, ' ');
+                    }
+                }
+            }
+            i = next_i;
+            continue;
+        }
+
+        // 4. Optional semicolon before closing brace '}'
+        if (c == ';') {
+            var peek = i + 1;
+            while (peek < source.len and std.ascii.isWhitespace(source[peek])) : (peek += 1) {}
+            if (peek < source.len and source[peek] == '}') {
+                i += 1;
+                continue;
+            }
+        }
+
+        // 5. Normal character
+        try result.append(allocator, c);
+        i += 1;
+    }
+
+    if (result.items.len > 0 and result.items[result.items.len - 1] != '\n') {
+        try result.append(allocator, '\n');
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
+test "minify basic js" {
+    const input =
+        \\const Zjb = class {
+        \\  new_handle(value) {
+        \\    if (value === null) {
+        \\      return 0;
+        \\    }
+        \\    const result = this._next_handle;
+        \\    this._handles.set(result, value);
+        \\    this._next_handle++;
+        \\    return result;
+        \\  }
+        \\};
+        \\export { Zjb };
+    ;
+    const minified = try minifyJs(std.testing.allocator, input);
+    defer std.testing.allocator.free(minified);
+
+    const expected = "const Zjb=class{new_handle(value){if(value===null){return 0}const result=this._next_handle;this._handles.set(result,value);this._next_handle++;return result}};export{Zjb};\n";
+    try std.testing.expectEqualStrings(expected, minified);
+}
+
+test "minify preserves strings with spaces and escapes" {
+    const input =
+        \\const s = "hello \"world\" test";
+        \\const empty = "";
+    ;
+    const minified = try minifyJs(std.testing.allocator, input);
+    defer std.testing.allocator.free(minified);
+
+    const expected = "const s=\"hello \\\"world\\\" test\";const empty=\"\";\n";
+    try std.testing.expectEqualStrings(expected, minified);
+}
+
+test "minify comments" {
+    const input =
+        \\// single line comment
+        \\const a = 1; /* block comment */
+        \\const b = 2;
+    ;
+    const minified = try minifyJs(std.testing.allocator, input);
+    defer std.testing.allocator.free(minified);
+
+    const expected = "const a=1;const b=2;\n";
+    try std.testing.expectEqualStrings(expected, minified);
+}
