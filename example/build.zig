@@ -30,14 +30,19 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&b.addInstallArtifact(example, .{
         .dest_dir = .{ .override = dir },
     }).step);
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(extract_example_out, dir, "zjb_extract.js").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(extract_example_out, dir, js_basename).step);
     b.getInstallStep().dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("static"),
         .install_dir = dir,
         .install_subdir = "",
     }).step);
 
-    const run_demo_server = demo_webserver.runDemoServer(b, b.getInstallStep(), .{});
+    const wf = b.addWriteFiles();
+    _ = wf.addCopyFile(example.getEmittedBin(), b.fmt("{s}.wasm", .{example.name}));
+    _ = wf.addCopyFile(extract_example_out, js_basename);
+    _ = wf.addCopyDirectory(b.path("static"), "", .{});
+
+    const run_demo_server = demo_webserver.runDemoServer(b, wf, .{});
     const serve = b.step("serve", "serve website locally");
     serve.dependOn(run_demo_server);
 }
