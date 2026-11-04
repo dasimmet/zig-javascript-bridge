@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn string(b: []const u8) Handle {
     if (b.len == 0) {
-        return @enumFromInt(2);
+        return @fromBackingInt(2);
     }
     return zjb.string(b.ptr, b.len);
 }
@@ -15,7 +15,7 @@ pub fn constString(comptime b: []const u8) ConstHandle {
                 return h;
             }
             ConstHandle.handle_count += 1;
-            handle = @enumFromInt(@intFromEnum(string(b)));
+            handle = @fromBackingInt(@backingInt(string(b)));
             return handle.?;
         }
     }.get();
@@ -29,7 +29,7 @@ pub fn global(comptime b: []const u8) ConstHandle {
                 return h;
             }
             ConstHandle.handle_count += 1;
-            handle = @enumFromInt(@intFromEnum(ConstHandle.global.get(b, Handle)));
+            handle = @fromBackingInt(@backingInt(ConstHandle.global.get(b, Handle)));
             return handle.?;
         }
     }.get();
@@ -45,7 +45,7 @@ pub fn fnHandle(comptime name: []const u8, comptime f: anytype) ConstHandle {
                 return h;
             }
             ConstHandle.handle_count += 1;
-            handle = @enumFromInt(@intFromEnum(ConstHandle.exports.get(name, Handle)));
+            handle = @fromBackingInt(@backingInt(ConstHandle.exports.get(name, Handle)));
             return handle.?;
         }
     }.get();
@@ -136,7 +136,7 @@ pub const ConstHandle = enum(i32) {
     fn asHandle(handle: ConstHandle) Handle {
         // Generally not a safe conversion, as turning into a handle and releasing elsewhere
         // will invalidate all other uses of the constant.
-        return @enumFromInt(@intFromEnum(handle));
+        return @fromBackingInt(@backingInt(handle));
     }
 
     pub fn get(handle: ConstHandle, comptime field: []const u8, comptime RetType: type) RetType {
@@ -171,7 +171,7 @@ pub const Handle = enum(i32) {
     }
 
     pub fn release(handle: Handle) void {
-        if (@intFromEnum(handle) > 2) {
+        if (@backingInt(handle) > 2) {
             zjb.release(handle);
         }
     }
