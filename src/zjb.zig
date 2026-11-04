@@ -219,16 +219,17 @@ pub const Handle = enum(i32) {
     }
 
     pub fn call(handle: Handle, comptime method: []const u8, args: anytype, comptime RetType: type) RetType {
-        return handle.invoke(args, RetType, "call_", "_" ++ method);
+        const method_name = constString(method);
+        return handle.invoke(.{method_name} ++ args, RetType, "call");
     }
 
     pub fn new(handle: Handle, args: anytype) Handle {
-        return handle.invoke(args, Handle, "new_", "");
+        return handle.invoke(args, Handle, "new");
     }
 
-    fn invoke(handle: Handle, args: anytype, comptime RetType: type, comptime prefix: []const u8, comptime suffix: []const u8) RetType {
+    fn invoke(handle: Handle, args: anytype, comptime RetType: type, comptime prefix: []const u8) RetType {
         validateFromJavascriptReturnType(RetType);
-        comptime var extern_name: []const u8 = prefix;
+        comptime var extern_name: []const u8 = prefix ++ "_";
         const F = comptime blk: {
             const field_types = @typeInfo(@TypeOf(args)).@"struct".field_types;
             var param_types: [field_types.len + 1]type = undefined;
@@ -247,7 +248,7 @@ pub const Handle = enum(i32) {
                 .@"callconv" = .c,
             });
         };
-        extern_name = extern_name ++ "_" ++ comptime shortTypeName(RetType) ++ suffix;
+        extern_name = extern_name ++ "_" ++ comptime shortTypeName(RetType);
 
         const f = @extern(*const F, .{ .library_name = "zjb", .name = extern_name });
         return @call(.auto, f, args ++ .{handle});

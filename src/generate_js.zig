@@ -191,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
     try writer.writeAll(classname);
     try writer.writeAll(
         \\ = class {
-        \\  new_handle(value) {
+        \\  nh(value) {
         \\    if (value === null) {
         \\      return 0;
         \\    }
@@ -199,6 +199,12 @@ pub fn main(init: std.process.Init) !void {
         \\    this._handles.set(result, value);
         \\    this._next_handle++;
         \\    return result;
+        \\  }
+        \\  gh(id) {
+        \\    return  this._handles.get(id);
+        \\  }
+        \\  dh(id) {
+        \\    return   this._handles.delete(id);
         \\  }
         \\  dataView() {
         \\    if (this._cached_data_view.buffer.byteLength !== this.instance.exports.memory.buffer.byteLength) {
@@ -296,7 +302,7 @@ pub fn main(init: std.process.Init) !void {
         };
 
         switch (method) {
-            .new, .indexGet, .set, .indexSet => {},
+            .call, .new, .indexGet, .set, .indexSet => {},
             else => {
                 try np.must("_");
             },
@@ -320,7 +326,7 @@ pub fn main(init: std.process.Init) !void {
                 try writer.writeAll("return Boolean(");
             },
             .object => {
-                try writer.writeAll("return this.new_handle(");
+                try writer.writeAll("return this.nh(");
             },
             .number => {
                 try writer.writeAll("return ");
@@ -328,23 +334,38 @@ pub fn main(init: std.process.Init) !void {
         }
 
         switch (method) {
-            .get, .set, .call => {
-                try writer.writeAll("this._handles.get(id).");
+            .get, .set => {
+                try writer.writeAll("this.gh(id).");
                 try writer.writeAll(target);
             },
+            .call => {
+                try writer.writeAll("this.gh(id)[this.gh(arg0)]");
+            },
             .indexGet, .indexSet => {
-                try writer.writeAll("this._handles.get(id)[");
+                try writer.writeAll("this.gh(id)[");
                 try writeArg(writer, func_args.items[0], 0);
                 try writer.writeAll("]");
             },
             .new => {
-                try writer.writeAll("new (this._handles.get(id))");
+                try writer.writeAll("new (  this.gh(id))");
             },
         }
 
         switch (method) {
             .get, .indexGet => {},
-            .call, .new => {
+            .call => {
+                try writer.writeAll("(");
+
+                for (func_args.items[1..], 1..) |arg, i| {
+                    if (i > 1) {
+                        try writer.writeAll(", ");
+                    }
+                    try writeArg(writer, arg, i);
+                }
+
+                try writer.writeAll(")");
+            },
+            .new => {
                 try writer.writeAll("(");
 
                 for (func_args.items, 0..) |arg, i| {
@@ -418,7 +439,7 @@ pub fn main(init: std.process.Init) !void {
                 try writer.writeAll("return Boolean(");
             },
             .object => {
-                try writer.writeAll("return this._handles.get(");
+                try writer.writeAll("return this.gh(");
             },
             .number => {
                 try writer.writeAll("return ");
@@ -441,7 +462,7 @@ pub fn main(init: std.process.Init) !void {
                     try writer.print("Boolean(arg{d})", .{i});
                 },
                 .object => {
-                    try writer.print("this.new_handle(arg{d})", .{i});
+                    try writer.print("this.nh(arg{d})", .{i});
                 },
                 .number => {
                     try writer.print("arg{d}", .{i});
@@ -603,7 +624,7 @@ fn writeArg(writer: anytype, arg: ArgType, i: usize) !void {
             try writer.print("Boolean(arg{d})", .{i});
         },
         .object => {
-            try writer.print("this._handles.get(arg{d})", .{i});
+            try writer.print("this.gh(arg{d})", .{i});
         },
         .number => {
             try writer.print("arg{d}", .{i});
@@ -726,15 +747,15 @@ const NameParser = struct {
 // lazy to write each function name twice and put it in a map.
 const builtins = [_][]const u8{
     \\      "string": (ptr, len) => {
-    \\        return this.new_handle(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
+    \\        return  this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
     \\      },
     ,
     \\      "release": (id) => {
-    \\        this._handles.delete(id);
+    \\         this.dh(id);
     \\      },
     ,
     \\      "dataview": (ptr, len) => {
-    \\        return this.new_handle(new DataView(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new DataView(this.instance.exports.memory.buffer, ptr, len));
     \\      },
     ,
     \\      "throw": (id) => {
@@ -743,7 +764,7 @@ const builtins = [_][]const u8{
     ,
     \\      "throwAndRelease": (id) => {
     \\        var message = this._handles.get(id);
-    \\        this._handles.delete(id);
+    \\         this.dh(id);
     \\        throw message;
     \\      },
     ,
@@ -756,15 +777,15 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {
-    \\        return this.new_handle(new Int8Array(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Int8Array(this.instance.exports.memory.buffer, ptr, len));
     \\      },
     ,
     \\      "u8ArrayView": (ptr, len) => {
-    \\        return this.new_handle(new Uint8Array(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Uint8Array(this.instance.exports.memory.buffer, ptr, len));
     \\      },
     ,
     \\      "u8ClampedArrayView": (ptr, len) => {
-    \\        return this.new_handle(new Uint8ClampedArray(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Uint8ClampedArray(this.instance.exports.memory.buffer, ptr, len));
     \\      },
     ,
 };
