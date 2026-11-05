@@ -1,9 +1,11 @@
 const std = @import("std");
 const demo_webserver = @import("demo_webserver");
+const javascript_bridge = @import("javascript_bridge");
+
+const LazyPath = std.Build.LazyPath;
 
 pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
-    const dir = std.Build.InstallDir.prefix;
 
     const simple = b.addExecutable(.{
         .name = "simple",
@@ -16,25 +18,34 @@ pub fn build(b: *std.Build) void {
     simple.entry = .disabled;
     simple.rdynamic = true;
 
-    const zjb = b.dependency("javascript_bridge", .{
-        .wasm_bindgen_bin = simple.getEmittedBin(),
+    const js_basename = "zjb_extract.js";
+    const zjb = b.dependency("javascript_bridge", .{});
+    const extract_simple_out = javascript_bridge.bindgen(b, .{
+        .basename = js_basename,
+        .wasm = simple.getEmittedBin(),
+        .classname = "Zjb",
+        .minify = b.option(bool, "minifyjs", "minify the js bindings") orelse false,
     });
-    const extract_simple_out = zjb.namedLazyPath("zjb_extract.js");
 
     simple.root_module.addImport("zjb", zjb.module("zjb"));
 
-    const install_step = b.getInstallStep();
-    install_step.dependOn(&b.addInstallArtifact(simple, .{
+    const dir = std.Build.InstallDir.prefix;
+    b.getInstallStep().dependOn(&b.addInstallArtifact(simple, .{
         .dest_dir = .{ .override = dir },
     }).step);
-    install_step.dependOn(&b.addInstallFileWithDir(extract_simple_out, dir, "zjb_extract.js").step);
-    install_step.dependOn(&b.addInstallDirectory(.{
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(extract_simple_out, dir, js_basename).step);
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("static"),
         .install_dir = dir,
         .install_subdir = "",
     }).step);
 
-    const run_demo_server = demo_webserver.runDemoServer(b, install_step, .{});
+    const wf = b.addWriteFiles();
+    _ = wf.addCopyFile(simple.getEmittedBin(), b.fmt("{s}.wasm", .{simple.name}));
+    _ = wf.addCopyFile(extract_simple_out, js_basename);
+    _ = wf.addCopyDirectory(b.path("static"), "", .{});
+
+    const run_demo_server = demo_webserver.runDemoServer(b, wf, .{});
     const serve = b.step("serve", "serve website locally");
     serve.dependOn(run_demo_server);
 }

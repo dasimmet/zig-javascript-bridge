@@ -178,36 +178,33 @@ pub const Handle = enum(i32) {
 
     pub fn get(handle: Handle, comptime field: []const u8, comptime RetType: type) RetType {
         validateFromJavascriptReturnType(RetType);
-        const name = comptime "get_" ++ shortTypeName(RetType) ++ "_" ++ field;
-        const F = fn (Handle) callconv(.c) mapType(RetType);
+        const field_name = constString(field);
+        const name = comptime "get_" ++ shortTypeName(RetType);
+        const F = fn (Handle, ConstHandle) callconv(.c) mapType(RetType);
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
-        return @call(.auto, f, .{handle});
+        return @call(.auto, f, .{ handle, field_name });
     }
 
     pub fn set(handle: Handle, comptime field: []const u8, value: anytype) void {
-        validateToJavascriptArgumentType(@TypeOf(value));
-        const name = comptime "set_" ++ shortTypeName(@TypeOf(value)) ++ "_" ++ field;
-        const F = fn (mapType(@TypeOf(value)), Handle) callconv(.c) void;
-        const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
-        @call(.auto, f, .{ value, handle });
+        return handle.invoke(field, .{value}, void, "set");
     }
 
     pub fn indexGet(handle: Handle, arg: anytype, comptime RetType: type) RetType {
         validateToJavascriptArgumentType(@TypeOf(arg));
         validateFromJavascriptReturnType(RetType);
         const name = comptime "indexGet_" ++ shortTypeName(@TypeOf(arg)) ++ "_" ++ shortTypeName(RetType);
-        const F = fn (mapType(@TypeOf(arg)), Handle) callconv(.c) mapType(RetType);
+        const F = fn (Handle, mapType(@TypeOf(arg))) callconv(.c) mapType(RetType);
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
-        return @call(.auto, f, .{ arg, handle });
+        return @call(.auto, f, .{ handle, arg });
     }
 
     pub fn indexSet(handle: Handle, arg: anytype, value: anytype) void {
         validateToJavascriptArgumentType(@TypeOf(arg));
         validateToJavascriptArgumentType(@TypeOf(value));
         const name = comptime "indexSet_" ++ shortTypeName(@TypeOf(arg)) ++ shortTypeName(@TypeOf(value));
-        const F = fn (mapType(@TypeOf(arg)), mapType(@TypeOf(value)), Handle) callconv(.c) void;
+        const F = fn (Handle, mapType(@TypeOf(arg)), mapType(@TypeOf(value))) callconv(.c) void;
         const f = @extern(*const F, .{ .library_name = "zjb", .name = name });
-        @call(.auto, f, .{ arg, value, handle });
+        @call(.auto, f, .{ handle, arg, value });
     }
 
     pub fn eql(handle: Handle, other: anytype) bool {
@@ -219,30 +216,37 @@ pub const Handle = enum(i32) {
     }
 
     pub fn call(handle: Handle, comptime method: []const u8, args: anytype, comptime RetType: type) RetType {
-        const method_name = constString(method);
-        return handle.invoke(.{method_name} ++ args, RetType, "call");
+        return handle.invoke(method, args, RetType, "call");
     }
 
     pub fn new(handle: Handle, args: anytype) Handle {
-        return handle.invoke(args, Handle, "new");
+        return invoke(handle, "", args, Handle, "new");
     }
 
-    fn invoke(handle: Handle, args: anytype, comptime RetType: type, comptime prefix: []const u8) RetType {
+    fn invoke(handle: Handle, comptime name: []const u8, args: anytype, comptime RetType: type, comptime prefix: []const u8) RetType {
         validateFromJavascriptReturnType(RetType);
         comptime var extern_name: []const u8 = prefix ++ "_";
+
         const F = comptime blk: {
             const field_types = @typeInfo(@TypeOf(args)).@"struct".field_types;
-            var param_types: [field_types.len + 1]type = undefined;
-            var param_attributes: [field_types.len + 1]std.builtin.Type.Fn.ParamAttributes = @splat(.{});
+            const arg_index = if (name.len > 0) 2 else 1;
 
-            for (field_types, (&param_types)[0..field_types.len]) |field_type, *T| {
-                validateToJavascriptArgumentType(field_type);
-                T.* = mapType(field_type);
-                extern_name = extern_name ++ shortTypeName(field_type);
+            var param_types: [field_types.len + arg_index]type = undefined;
+            var param_attributes: [field_types.len + arg_index]std.builtin.Type.Fn.ParamAttributes = @splat(.{});
+
+            param_attributes[0] = .{};
+            param_types[0] = Handle;
+
+            if (name.len > 0) {
+                param_attributes[1] = .{};
+                param_types[1] = ConstHandle;
             }
 
-            param_attributes[field_types.len] = .{};
-            param_types[field_types.len] = Handle;
+            for (field_types, 0..) |field_type, i| {
+                validateToJavascriptArgumentType(field_type);
+                param_types[i + arg_index] = mapType(field_type);
+                extern_name = extern_name ++ shortTypeName(field_type);
+            }
 
             break :blk @Fn(&param_types, &param_attributes, RetType, .{
                 .@"callconv" = .c,
@@ -251,7 +255,7 @@ pub const Handle = enum(i32) {
         extern_name = extern_name ++ "_" ++ comptime shortTypeName(RetType);
 
         const f = @extern(*const F, .{ .library_name = "zjb", .name = extern_name });
-        return @call(.auto, f, args ++ .{handle});
+        return @call(.auto, f, (if (name.len > 0) .{ handle, constString(name) } ++ args else .{handle} ++ args));
     }
 };
 

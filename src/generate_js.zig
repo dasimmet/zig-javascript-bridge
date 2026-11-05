@@ -275,6 +275,8 @@ pub fn main(init: std.process.Init) !void {
             while (!(np.maybe("_") or np.slice.len == 0)) {
                 try func_args.append(gpa, try np.mustArgType());
             }
+        } else {
+            _ = np.maybe("_");
         }
         switch (method) {
             .get => {
@@ -282,7 +284,12 @@ pub fn main(init: std.process.Init) !void {
                     return ExtractError.InvalidExportedName;
                 }
             },
-            .set, .indexGet => {
+            .set => {
+                if (func_args.items.len != 1) {
+                    return ExtractError.InvalidExportedName;
+                }
+            },
+            .indexGet => {
                 if (func_args.items.len != 1) {
                     return ExtractError.InvalidExportedName;
                 }
@@ -292,34 +299,37 @@ pub fn main(init: std.process.Init) !void {
                     return ExtractError.InvalidExportedName;
                 }
             },
-            else => {},
+            .call, .new => {},
         }
 
         const ret_type = switch (method) {
             .new => ArgType.object,
-            .set, .indexSet => ArgType.void,
+            .indexSet => ArgType.void,
             else => try np.mustArgType(),
         };
-
-        switch (method) {
-            .call, .new, .indexGet, .set, .indexSet => {},
-            else => {
-                try np.must("_");
-            },
-        }
-
-        const target = np.slice;
 
         //////////////////////////////////
 
         try writer.writeAll("      \"");
         try writer.writeAll(func);
         try writer.writeAll("\": (");
-        for (0..func_args.items.len) |i| {
-            try writer.print("arg{d}, ", .{i});
+        switch (method) {
+            .call, .get, .set => {
+                try writer.writeAll("id0, id1");
+                for (0..func_args.items.len) |i| {
+                    try writer.print(", arg{d}", .{i});
+                }
+                try writer.writeAll(") => {\n        ");
+            },
+            .new, .indexGet, .indexSet => {
+                try writer.writeAll("id");
+                for (0..func_args.items.len) |i| {
+                    try writer.print(", arg{d}", .{i});
+                }
+                try writer.writeAll(") => {\n        ");
+            },
         }
 
-        try writer.writeAll("id) => {\n        ");
         switch (ret_type) {
             .void => {},
             .bool => {
@@ -334,12 +344,8 @@ pub fn main(init: std.process.Init) !void {
         }
 
         switch (method) {
-            .get, .set => {
-                try writer.writeAll("this.gh(id).");
-                try writer.writeAll(target);
-            },
-            .call => {
-                try writer.writeAll("this.gh(id)[this.gh(arg0)]");
+            .get, .set, .call => {
+                try writer.writeAll("this.gh(id0)[this.gh(id1)]");
             },
             .indexGet, .indexSet => {
                 try writer.writeAll("this.gh(id)[");
@@ -347,7 +353,7 @@ pub fn main(init: std.process.Init) !void {
                 try writer.writeAll("]");
             },
             .new => {
-                try writer.writeAll("new (  this.gh(id))");
+                try writer.writeAll("new (this.gh(id))");
             },
         }
 
@@ -356,8 +362,8 @@ pub fn main(init: std.process.Init) !void {
             .call => {
                 try writer.writeAll("(");
 
-                for (func_args.items[1..], 1..) |arg, i| {
-                    if (i > 1) {
+                for (func_args.items, 0..) |arg, i| {
+                    if (i > 0) {
                         try writer.writeAll(", ");
                     }
                     try writeArg(writer, arg, i);
@@ -747,11 +753,11 @@ const NameParser = struct {
 // lazy to write each function name twice and put it in a map.
 const builtins = [_][]const u8{
     \\      "string": (ptr, len) => {
-    \\        return  this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
+    \\        return this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
     \\      },
     ,
     \\      "release": (id) => {
-    \\         this.dh(id);
+    \\        this.dh(id);
     \\      },
     ,
     \\      "dataview": (ptr, len) => {
@@ -764,7 +770,7 @@ const builtins = [_][]const u8{
     ,
     \\      "throwAndRelease": (id) => {
     \\        var message = this._handles.get(id);
-    \\         this.dh(id);
+    \\        this.dh(id);
     \\        throw message;
     \\      },
     ,

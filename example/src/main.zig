@@ -100,6 +100,12 @@ export fn main() void {
         log(obj);
     }
 
+    logStr("\n============================= New with arguments =========================================");
+    {
+        const obj = zjb.global("Boolean").new(.{true});
+        defer obj.release();
+    }
+
     logStr("\n============================= html canvas example =============================");
     {
         const canvas = zjb.global("document").call("getElementById", .{zjb.constString("canvas")}, zjb.Handle);
