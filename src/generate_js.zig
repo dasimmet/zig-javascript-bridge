@@ -817,11 +817,11 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "garbagecollect": () => {
-    \\        let next = 1;
+    \\        let max = 0;
     \\        for (const k of this._handles.keys()) {
-    \\          if (k > next) next = k;
+    \\          if (k > max) max = k;
     \\        }
-    \\        this._next_handle = next;
+    \\        this._next_handle = max + 1;
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {
