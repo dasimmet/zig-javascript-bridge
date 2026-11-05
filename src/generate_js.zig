@@ -195,15 +195,31 @@ pub fn main(init: std.process.Init) !void {
         \\    if (value === null) {
         \\      return 0;
         \\    }
+        \\    if (value === undefined) {
+        \\      return -1;
+        \\    }
         \\    const result = this._next_handle;
         \\    this._handles.set(result, value);
         \\    this._next_handle++;
+        \\    return result;
+        \\  }
+        \\  nch(value) {
+        \\    if (value === null) {
+        \\      return 0;
+        \\    }
+        \\    if (value === undefined) {
+        \\      return -1;
+        \\    }
+        \\    const result = this._next_const_handle;
+        \\    this._handles.set(result, value);
+        \\    this._next_const_handle--;
         \\    return result;
         \\  }
         \\  gh(id) {
         \\    return  this._handles.get(id);
         \\  }
         \\  dh(id) {
+        \\    if (id <= 0) return false;
         \\    return   this._handles.delete(id);
         \\  }
         \\  dataView() {
@@ -338,6 +354,9 @@ pub fn main(init: std.process.Init) !void {
             .object => {
                 try writer.writeAll("return this.nh(");
             },
+            .const_object => {
+                try writer.writeAll("return this.nch(");
+            },
             .number => {
                 try writer.writeAll("return ");
             },
@@ -394,7 +413,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         switch (ret_type) {
-            .bool, .object => {
+            .bool, .object, .const_object => {
                 try writer.writeAll(")");
             },
             .void, .number => {},
@@ -444,7 +463,7 @@ pub fn main(init: std.process.Init) !void {
             .bool => {
                 try writer.writeAll("return Boolean(");
             },
-            .object => {
+            .object, .const_object => {
                 try writer.writeAll("return this.gh(");
             },
             .number => {
@@ -470,6 +489,9 @@ pub fn main(init: std.process.Init) !void {
                 .object => {
                     try writer.print("this.nh(arg{d})", .{i});
                 },
+                .const_object => {
+                    try writer.print("this.nch(arg{d})", .{i});
+                },
                 .number => {
                     try writer.print("arg{d}", .{i});
                 },
@@ -479,7 +501,7 @@ pub fn main(init: std.process.Init) !void {
         try writer.writeAll(")");
 
         switch (ret_type) {
-            .bool, .object => {
+            .bool, .object, .const_object => {
                 try writer.writeAll(")");
             },
             .void, .number => {},
@@ -495,10 +517,12 @@ pub fn main(init: std.process.Init) !void {
         \\    this._export_reverse_handles = {};
         \\    this._handles = new Map();
         \\    this._handles.set(0, null);
-        \\    this._handles.set(1, window);
-        \\    this._handles.set(2, "");
-        \\    this._handles.set(3, this.exports);
-        \\    this._next_handle = 4;
+        \\    this._handles.set(-1, undefined);
+        \\    this._handles.set(-2, window);
+        \\    this._handles.set(-3, "");
+        \\    this._handles.set(-4, this.exports);
+        \\    this._next_handle = 1;
+        \\    this._next_const_handle = -5;
         \\  }
         \\
     ); // end constructor
@@ -629,7 +653,7 @@ fn writeArg(writer: anytype, arg: ArgType, i: usize) !void {
         .bool => {
             try writer.print("Boolean(arg{d})", .{i});
         },
-        .object => {
+        .object, .const_object => {
             try writer.print("this.gh(arg{d})", .{i});
         },
         .number => {
@@ -658,6 +682,7 @@ const ArgType = enum {
     bool,
     void,
     object,
+    const_object,
 };
 
 const GlobalType = enum {
@@ -742,6 +767,9 @@ const NameParser = struct {
         if (self.maybe("v")) {
             return .void;
         }
+        if (self.maybe("c")) {
+            return .const_object;
+        }
         if (self.maybe("o")) {
             return .object;
         }
@@ -752,12 +780,18 @@ const NameParser = struct {
 // Must have function name between start and first paren with no whitespace, because I'm too
 // lazy to write each function name twice and put it in a map.
 const builtins = [_][]const u8{
+    \\      "constString": (ptr, len) => {
+    \\        return this.nch(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
+    \\      },
+    ,
     \\      "string": (ptr, len) => {
     \\        return this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
     \\      },
     ,
     \\      "release": (id) => {
-    \\        this.dh(id);
+    \\        if (id > 0) {
+    \\          this.dh(id);
+    \\        }
     \\      },
     ,
     \\      "dataview": (ptr, len) => {
@@ -770,7 +804,9 @@ const builtins = [_][]const u8{
     ,
     \\      "throwAndRelease": (id) => {
     \\        var message = this._handles.get(id);
-    \\        this.dh(id);
+    \\        if (id > 0) {
+    \\          this.dh(id);
+    \\        }
     \\        throw message;
     \\      },
     ,
@@ -779,7 +815,15 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "handleCount": () => {
-    \\        return this._handles.size;
+    \\        let count = 0;
+    \\        for (const k of this._handles.keys().filter(a=>a>0)) {
+    \\          count++;
+    \\        }
+    \\        return count;
+    \\      },
+    ,
+    \\      "garbagecollect": () => {
+    \\        this._next_handle = this._handles.keys().reduce((a, b) => Math.max(a, b)) + 1;
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {

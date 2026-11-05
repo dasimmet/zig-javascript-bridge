@@ -13,6 +13,7 @@ fn logStr(str: []const u8) void {
 
 pub const panic = zjb.panic;
 export fn main() void {
+    defer zjb.garbagecollect();
     zjb.global("console").call("log", .{zjb.constString("Hello from Zig")}, void);
 
     {
