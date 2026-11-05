@@ -108,6 +108,9 @@ pub fn main(init: std.process.Init) !void {
     var exportFunctions: std.ArrayList([]const u8) = .empty;
     defer exportFunctions.deinit(gpa);
     defer for (exportFunctions.items) |item| gpa.free(item);
+    var exportFnptrs: std.ArrayList([]const u8) = .empty;
+    defer exportFnptrs.deinit(gpa);
+    defer for (exportFnptrs.items) |item| gpa.free(item);
     var exportGlobals: std.ArrayList([]const u8) = .empty;
     defer exportGlobals.deinit(gpa);
     defer for (exportGlobals.items) |item| gpa.free(item);
@@ -167,8 +170,10 @@ pub fn main(init: std.process.Init) !void {
                     const desc_index = try r.takeLeb128(u32);
                     _ = desc_index;
 
-                    if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fn")) {
+                    if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fn_")) {
                         try exportFunctions.append(gpa, try gpa.dupe(u8, name));
+                    } else if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fnptr_")) {
+                        try exportFnptrs.append(gpa, try gpa.dupe(u8, name));
                     } else if (std.mem.startsWith(u8, name, "zjb_global")) {
                         try exportGlobals.append(gpa, try gpa.dupe(u8, name));
                     }
@@ -181,7 +186,58 @@ pub fn main(init: std.process.Init) !void {
 
     std.sort.insertion([]const u8, importFunctions.items, {}, strBefore);
     std.sort.insertion([]const u8, exportFunctions.items, {}, strBefore);
+    std.sort.insertion([]const u8, exportFnptrs.items, {}, strBefore);
     std.sort.insertion([]const u8, exportGlobals.items, {}, strBefore);
+
+    const SigInfo = struct {
+        sig: []const u8,
+        args: []const ArgType,
+        ret: ArgType,
+    };
+
+    var unique_sigs: std.ArrayList(SigInfo) = .empty;
+    defer unique_sigs.deinit(gpa);
+    defer for (unique_sigs.items) |s| gpa.free(s.args);
+
+    for (exportFnptrs.items) |func| {
+        var np = NameParser{ .slice = func };
+        try np.must("zjb_fnptr_");
+
+        var sig_args: std.ArrayList(ArgType) = .empty;
+        while (!(np.maybe("_") or np.slice.len == 0)) {
+            try sig_args.append(gpa, try np.mustArgType());
+        }
+
+        const ret_type = try np.mustArgType();
+        try np.must("_");
+
+        const name = np.slice;
+        const sig = func["zjb_fnptr_".len .. func.len - name.len - 1];
+
+        var found = false;
+        for (unique_sigs.items) |s| {
+            if (std.mem.eql(u8, s.sig, sig)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            try unique_sigs.append(gpa, .{
+                .sig = sig,
+                .args = try sig_args.toOwnedSlice(gpa),
+                .ret = ret_type,
+            });
+        } else {
+            sig_args.deinit(gpa);
+        }
+    }
+
+    const SigLess = struct {
+        fn less(_: void, a: SigInfo, b: SigInfo) bool {
+            return std.mem.order(u8, a.sig, b.sig) == .lt;
+        }
+    };
+    std.sort.insertion(SigInfo, unique_sigs.items, {}, SigLess.less);
 
     var aw = std.Io.Writer.Allocating.init(gpa);
     defer aw.deinit();
@@ -235,6 +291,7 @@ pub fn main(init: std.process.Init) !void {
         \\    }
         \\    return this._cached_data_view;
         \\  }
+        \\
         \\  constructor() {
         \\    this._decoder = new TextDecoder();
         \\    this.imports = {
@@ -518,6 +575,39 @@ pub fn main(init: std.process.Init) !void {
 
     try writer.writeAll("    };\n"); // end export object
 
+    try writer.writeAll("    this._fnptr = {\n");
+    for (unique_sigs.items) |s| {
+        try writer.print("      \"{s}\": (fnName) => {{\n        return (", .{s.sig});
+        for (0..s.args.len) |i| {
+            if (i > 0) try writer.writeAll(", ");
+            try writer.print("arg{d}", .{i});
+        }
+        try writer.writeAll(") => {\n          return ");
+        switch (s.ret) {
+            .void, .number => {},
+            .bool => try writer.writeAll("Boolean("),
+            .object, .const_object => try writer.writeAll("this.gh("),
+        }
+        try writer.print("this.instance.exports[\"zjb_fnptr_{s}_\" + fnName](", .{s.sig});
+        for (s.args, 0..) |arg, i| {
+            if (i > 0) try writer.writeAll(", ");
+            switch (arg) {
+                .void => return ExtractError.InvalidExportedName,
+                .bool => try writer.print("Boolean(arg{d})", .{i}),
+                .object => try writer.print("this.nh(arg{d})", .{i}),
+                .const_object => try writer.print("this.nch(arg{d})", .{i}),
+                .number => try writer.print("arg{d}", .{i}),
+            }
+        }
+        try writer.writeAll(")");
+        switch (s.ret) {
+            .bool, .object, .const_object => try writer.writeAll(")"),
+            .void, .number => {},
+        }
+        try writer.writeAll(";\n        };\n      },\n");
+    }
+    try writer.writeAll("    };\n");
+
     try writer.writeAll(
         \\    this.instance = null;
         \\    this._cached_data_view = null;
@@ -530,8 +620,9 @@ pub fn main(init: std.process.Init) !void {
         \\    this._consthandles.set(2, window);
         \\    this._consthandles.set(3, "");
         \\    this._consthandles.set(4, this.exports);
+        \\    this._consthandles.set(5, this._fnptr);
         \\    this._next_handle = 1;
-        \\    this._next_const_handle = 5;
+        \\    this._next_const_handle = 6;
         \\  }
         \\
     ); // end constructor

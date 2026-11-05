@@ -37,7 +37,7 @@ pub fn global(comptime b: []const u8) ConstHandle {
 }
 
 pub fn fnHandle(comptime name: []const u8, comptime f: anytype) ConstHandle {
-    comptime exportFn(name, f);
+    comptime exposeFn("zjb_fnptr", name, f);
 
     return struct {
         var handle: ?ConstHandle = null;
@@ -45,7 +45,8 @@ pub fn fnHandle(comptime name: []const u8, comptime f: anytype) ConstHandle {
             if (handle) |h| {
                 return h;
             }
-            handle = ConstHandle.exports.get(name, ConstHandle);
+            const sig = comptime exposeFnSig(f);
+            handle = ConstHandle.fnptr.call(sig, .{constString(name)}, ConstHandle);
             return handle.?;
         }
     }.get();
@@ -59,15 +60,23 @@ pub fn exportGlobal(comptime name: []const u8, comptime value: anytype) void {
 }
 
 pub fn exportFn(comptime name: []const u8, comptime f: anytype) void {
-    comptime var export_name: []const u8 = "zjb_fn_";
+    exposeFn("zjb_fn", name, f);
+}
+
+fn exposeFnSig(comptime f: anytype) []const u8 {
+    comptime var sig: []const u8 = "";
     const type_info = @typeInfo(@typeInfo(@TypeOf(f)).pointer.child).@"fn";
-    validateToJavascriptReturnType(type_info.return_type orelse void);
     inline for (type_info.param_types) |param_type| {
         const T = param_type orelse @compileError("zjb exported functions need specified types.");
         validateFromJavascriptArgumentType(T);
-        export_name = export_name ++ comptime argShortTypeName(T);
+        sig = sig ++ comptime argShortTypeName(T);
     }
-    export_name = export_name ++ "_" ++ comptime retShortTypeName(type_info.return_type orelse null) ++ "_" ++ name;
+    validateToJavascriptReturnType(type_info.return_type orelse void);
+    return sig ++ "_" ++ comptime retShortTypeName(type_info.return_type orelse void);
+}
+
+fn exposeFn(comptime prefix: []const u8, comptime name: []const u8, comptime f: anytype) void {
+    const export_name = prefix ++ "_" ++ comptime exposeFnSig(f) ++ "_" ++ name;
 
     @export(f, .{ .name = export_name });
 }
@@ -126,6 +135,7 @@ pub const ConstHandle = enum(i32) {
     global = -2,
     empty_string = -3,
     exports = -4,
+    fnptr = -5,
     _,
 
     pub fn isNull(handle: ConstHandle) bool {
@@ -165,6 +175,7 @@ pub const Handle = enum(i32) {
     global = -2,
     empty_string = -3,
     exports = -4,
+    fnptr = -5,
     _,
 
     pub fn isNull(handle: Handle) bool {
