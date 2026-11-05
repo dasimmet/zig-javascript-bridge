@@ -211,12 +211,16 @@ pub fn main(init: std.process.Init) !void {
         \\      return -1;
         \\    }
         \\    const result = this._next_const_handle;
-        \\    this._handles.set(result, value);
+        \\    this._consthandles.set(-1 * result, value);
         \\    this._next_const_handle--;
         \\    return result;
         \\  }
         \\  gh(id) {
-        \\    return  this._handles.get(id);
+        \\    if (id > 0) {
+        \\      return  this._handles.get(id);
+        \\    } else {
+        \\      return  this._consthandles.get(-1 * id);
+        \\    }
         \\  }
         \\  dh(id) {
         \\    if (id <= 0) return false;
@@ -516,11 +520,12 @@ pub fn main(init: std.process.Init) !void {
         \\    this._cached_data_view = null;
         \\    this._export_reverse_handles = {};
         \\    this._handles = new Map();
-        \\    this._handles.set(0, null);
-        \\    this._handles.set(-1, undefined);
-        \\    this._handles.set(-2, window);
-        \\    this._handles.set(-3, "");
-        \\    this._handles.set(-4, this.exports);
+        \\    this._consthandles = new Map();
+        \\    this._consthandles.set(0, null);
+        \\    this._consthandles.set(1, undefined);
+        \\    this._consthandles.set(2, window);
+        \\    this._consthandles.set(3, "");
+        \\    this._consthandles.set(4, this.exports);
         \\    this._next_handle = 1;
         \\    this._next_const_handle = -5;
         \\  }
@@ -794,29 +799,29 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "throw": (id) => {
-    \\        throw this._handles.get(id);
+    \\        throw this.gh(id);
     \\      },
     ,
     \\      "throwAndRelease": (id) => {
-    \\        var message = this._handles.get(id);
+    \\        var message = this.gh(id);
     \\        this.dh(id);
     \\        throw message;
     \\      },
     ,
     \\      "equal": (a, b) => {
-    \\        return this._handles.get(a) === this._handles.get(b);
+    \\        return this.gh(a) === this.gh(b);
     \\      },
     ,
     \\      "handleCount": () => {
-    \\        let count = 0;
-    \\        for (const k of this._handles.keys().filter(a=>a>0)) {
-    \\          count++;
-    \\        }
-    \\        return count;
+    \\        return this._handles.size;
     \\      },
     ,
     \\      "garbagecollect": () => {
-    \\        this._next_handle = this._handles.keys().reduce((a, b) => Math.max(a, b)) + 1;
+    \\        let next = 1;
+    \\        for (const k of this._handles.keys()) {
+    \\          if (k > next) next = k;
+    \\        }
+    \\        this._next_handle = next;
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {
