@@ -92,7 +92,6 @@ pub fn throwError(err: anyerror) noreturn {
 
 pub const throw = zjb.throw;
 pub const throwAndRelease = zjb.throwAndRelease;
-pub const garbagecollect = zjb.garbagecollect;
 
 pub fn i8ArrayView(data: []const i8) Handle {
     return zjb.i8ArrayView(data.ptr, data.len);
@@ -337,7 +336,6 @@ const zjb = struct {
     extern "zjb" fn dataview(ptr: *const anyopaque, size: u32) Handle;
     extern "zjb" fn throw(handle: Handle) noreturn;
     extern "zjb" fn throwAndRelease(id: Handle) noreturn;
-    extern "zjb" fn garbagecollect() void;
     extern "zjb" fn equal(handle: Handle, other: Handle) bool;
     extern "zjb" fn handleCount() u32;
     extern "zjb" fn i8ArrayView(ptr: *const anyopaque, size: u32) Handle;

@@ -198,9 +198,8 @@ pub fn main(init: std.process.Init) !void {
         \\    if (value === undefined) {
         \\      return -1;
         \\    }
-        \\    const result = this._next_handle;
+        \\    const result = this._free_handles.length > 0 ? this._free_handles.pop() : this._next_handle++;
         \\    this._handles.set(result, value);
-        \\    this._next_handle++;
         \\    return result;
         \\  }
         \\  nch(value) {
@@ -224,7 +223,11 @@ pub fn main(init: std.process.Init) !void {
         \\  }
         \\  dh(id) {
         \\    if (id <= 0) return false;
-        \\    return   this._handles.delete(id);
+        \\    const deleted = this._handles.delete(id);
+        \\    if (deleted) {
+        \\      this._free_handles.push(id);
+        \\    }
+        \\    return deleted;
         \\  }
         \\  dataView() {
         \\    if (this._cached_data_view.buffer.byteLength !== this.instance.exports.memory.buffer.byteLength) {
@@ -519,6 +522,7 @@ pub fn main(init: std.process.Init) !void {
         \\    this.instance = null;
         \\    this._cached_data_view = null;
         \\    this._export_reverse_handles = {};
+        \\    this._free_handles = [];
         \\    this._handles = new Map();
         \\    this._consthandles = new Map();
         \\    this._consthandles.set(0, null);
@@ -814,14 +818,6 @@ const builtins = [_][]const u8{
     ,
     \\      "handleCount": () => {
     \\        return this._handles.size;
-    \\      },
-    ,
-    \\      "garbagecollect": () => {
-    \\        let max = 0;
-    \\        for (const k of this._handles.keys()) {
-    \\          if (k > max) max = k;
-    \\        }
-    \\        this._next_handle = max + 1;
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {
