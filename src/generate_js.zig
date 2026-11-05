@@ -210,9 +210,9 @@ pub fn main(init: std.process.Init) !void {
         \\      return -1;
         \\    }
         \\    const result = this._next_const_handle;
-        \\    this._consthandles.set(-1 * result, value);
-        \\    this._next_const_handle--;
-        \\    return result;
+        \\    this._consthandles.set(result, value);
+        \\    this._next_const_handle++;
+        \\    return -1 * result;
         \\  }
         \\  gh(id) {
         \\    if (id > 0) {
@@ -531,7 +531,7 @@ pub fn main(init: std.process.Init) !void {
         \\    this._consthandles.set(3, "");
         \\    this._consthandles.set(4, this.exports);
         \\    this._next_handle = 1;
-        \\    this._next_const_handle = -5;
+        \\    this._next_const_handle = 5;
         \\  }
         \\
     ); // end constructor
