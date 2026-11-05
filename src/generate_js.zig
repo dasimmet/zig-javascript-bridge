@@ -746,9 +746,6 @@ const NameParser = struct {
     }
 
     fn mustArgType(self: *NameParser) !ArgType {
-        // if (self.maybe("n")) {
-        //     return .number;
-        // }
         if (self.maybe("i32")) {
             return .number;
         }
@@ -789,9 +786,7 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "release": (id) => {
-    \\        if (id > 0) {
-    \\          this.dh(id);
-    \\        }
+    \\        this.dh(id);
     \\      },
     ,
     \\      "dataview": (ptr, len) => {
@@ -804,9 +799,7 @@ const builtins = [_][]const u8{
     ,
     \\      "throwAndRelease": (id) => {
     \\        var message = this._handles.get(id);
-    \\        if (id > 0) {
-    \\          this.dh(id);
-    \\        }
+    \\        this.dh(id);
     \\        throw message;
     \\      },
     ,
