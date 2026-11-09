@@ -645,9 +645,9 @@ pub fn main(init: std.process.Init) !void {
 
         const name = np.slice;
         try writer.writeAll("    {\n");
-        try writer.writeAll("      const ptr = instance.exports.");
+        try writer.writeAll("      const ptr = Number(instance.exports.");
         try writer.writeAll(global);
-        try writer.writeAll(".value;\n");
+        try writer.writeAll(".value);\n");
 
         try writer.writeAll("      Object.defineProperty(this.exports, \"");
         try writer.writeAll(name);
@@ -878,11 +878,11 @@ const NameParser = struct {
 // lazy to write each function name twice and put it in a map.
 const builtins = [_][]const u8{
     \\      "constString": (ptr, len) => {
-    \\        return this.nch(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
+    \\        return this.nch(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, Number(ptr), Number(len))));
     \\      },
     ,
     \\      "string": (ptr, len) => {
-    \\        return this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, ptr, len)));
+    \\        return this.nh(this._decoder.decode(new Uint8Array(this.instance.exports.memory.buffer, Number(ptr), Number(len))));
     \\      },
     ,
     \\      "release": (id) => {
@@ -890,7 +890,7 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "dataview": (ptr, len) => {
-    \\        return this.nh(new DataView(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new DataView(this.instance.exports.memory.buffer, Number(ptr), Number(len)));
     \\      },
     ,
     \\      "throw": (id) => {
@@ -912,15 +912,15 @@ const builtins = [_][]const u8{
     \\      },
     ,
     \\      "i8ArrayView": (ptr, len) => {
-    \\        return this.nh(new Int8Array(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Int8Array(this.instance.exports.memory.buffer, Number(ptr), Number(len)));
     \\      },
     ,
     \\      "u8ArrayView": (ptr, len) => {
-    \\        return this.nh(new Uint8Array(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Uint8Array(this.instance.exports.memory.buffer, Number(ptr), Number(len)));
     \\      },
     ,
     \\      "u8ClampedArrayView": (ptr, len) => {
-    \\        return this.nh(new Uint8ClampedArray(this.instance.exports.memory.buffer, ptr, len));
+    \\        return this.nh(new Uint8ClampedArray(this.instance.exports.memory.buffer, Number(ptr), Number(len)));
     \\      },
     ,
 };

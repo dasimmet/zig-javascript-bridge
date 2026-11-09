@@ -342,14 +342,14 @@ fn mapType(comptime T: type) type {
 
 const zjb = struct {
     extern "zjb" fn release(id: Handle) void;
-    extern "zjb" fn string(ptr: [*]const u8, len: u32) Handle;
-    extern "zjb" fn constString(ptr: [*]const u8, len: u32) ConstHandle;
-    extern "zjb" fn dataview(ptr: *const anyopaque, size: u32) Handle;
+    extern "zjb" fn string(ptr: [*]const u8, len: usize) Handle;
+    extern "zjb" fn constString(ptr: [*]const u8, len: usize) ConstHandle;
+    extern "zjb" fn dataview(ptr: *const anyopaque, size: usize) Handle;
     extern "zjb" fn throw(handle: Handle) noreturn;
     extern "zjb" fn throwAndRelease(id: Handle) noreturn;
     extern "zjb" fn equal(handle: Handle, other: Handle) bool;
     extern "zjb" fn handleCount() u32;
-    extern "zjb" fn i8ArrayView(ptr: *const anyopaque, size: u32) Handle;
-    extern "zjb" fn u8ArrayView(ptr: *const anyopaque, size: u32) Handle;
-    extern "zjb" fn u8ClampedArrayView(ptr: *const anyopaque, size: u32) Handle;
+    extern "zjb" fn i8ArrayView(ptr: *const anyopaque, size: usize) Handle;
+    extern "zjb" fn u8ArrayView(ptr: *const anyopaque, size: usize) Handle;
+    extern "zjb" fn u8ClampedArrayView(ptr: *const anyopaque, size: usize) Handle;
 };
