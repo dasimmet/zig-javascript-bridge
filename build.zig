@@ -48,6 +48,17 @@ pub fn build(b: *std.Build) void {
             },
         },
     });
+
+    // Unit test step: zig build test
+    const zjblib_test_exe = b.addTest(.{
+        .name = "zjblib-test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/zjblib/testing.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const run_zjblib_test = b.addRunArtifact(zjblib_test_exe);
+    test_step.dependOn(&run_zjblib_test.step);
 }
 
 pub const BindgenOptions = struct {
