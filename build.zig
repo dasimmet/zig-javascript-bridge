@@ -35,8 +35,18 @@ pub fn build(b: *std.Build) void {
     /////////////////////////////////////////////////////////////
     // module
 
-    _ = b.addModule("zjb", .{
+    const zjbmod = b.addModule("zjb", .{
         .root_source_file = b.path("src/zjb.zig"),
+    });
+
+    _ = b.addModule("zjblib", .{
+        .root_source_file = b.path("src/zjb.zig"),
+        .imports = &.{
+            .{
+                .name = "zjb",
+                .module = zjbmod,
+            },
+        },
     });
 }
 
