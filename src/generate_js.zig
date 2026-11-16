@@ -108,9 +108,9 @@ pub fn main(init: std.process.Init) !void {
     var exportFunctions: std.ArrayList([]const u8) = .empty;
     defer exportFunctions.deinit(gpa);
     defer for (exportFunctions.items) |item| gpa.free(item);
-    var exportFnptrs: std.ArrayList([]const u8) = .empty;
-    defer exportFnptrs.deinit(gpa);
-    defer for (exportFnptrs.items) |item| gpa.free(item);
+    var exportFnHandles: std.ArrayList([]const u8) = .empty;
+    defer exportFnHandles.deinit(gpa);
+    defer for (exportFnHandles.items) |item| gpa.free(item);
     var exportGlobals: std.ArrayList([]const u8) = .empty;
     defer exportGlobals.deinit(gpa);
     defer for (exportGlobals.items) |item| gpa.free(item);
@@ -172,8 +172,8 @@ pub fn main(init: std.process.Init) !void {
 
                     if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fn_")) {
                         try exportFunctions.append(gpa, try gpa.dupe(u8, name));
-                    } else if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fnptr_")) {
-                        try exportFnptrs.append(gpa, try gpa.dupe(u8, name));
+                    } else if (desc_type == 0 and std.mem.startsWith(u8, name, "zjb_fnHandle_")) {
+                        try exportFnHandles.append(gpa, try gpa.dupe(u8, name));
                     } else if (std.mem.startsWith(u8, name, "zjb_global")) {
                         try exportGlobals.append(gpa, try gpa.dupe(u8, name));
                     }
@@ -186,7 +186,7 @@ pub fn main(init: std.process.Init) !void {
 
     std.sort.insertion([]const u8, importFunctions.items, {}, strBefore);
     std.sort.insertion([]const u8, exportFunctions.items, {}, strBefore);
-    std.sort.insertion([]const u8, exportFnptrs.items, {}, strBefore);
+    std.sort.insertion([]const u8, exportFnHandles.items, {}, strBefore);
     std.sort.insertion([]const u8, exportGlobals.items, {}, strBefore);
 
     const SigInfo = struct {
@@ -199,9 +199,9 @@ pub fn main(init: std.process.Init) !void {
     defer unique_sigs.deinit(gpa);
     defer for (unique_sigs.items) |s| gpa.free(s.args);
 
-    for (exportFnptrs.items) |func| {
+    for (exportFnHandles.items) |func| {
         var np = NameParser{ .slice = func };
-        try np.must("zjb_fnptr_");
+        try np.must("zjb_fnHandle_");
 
         var sig_args: std.ArrayList(ArgType) = .empty;
         while (!(np.maybe("_") or np.slice.len == 0)) {
@@ -212,7 +212,7 @@ pub fn main(init: std.process.Init) !void {
         try np.must("_");
 
         const name = np.slice;
-        const sig = func["zjb_fnptr_".len .. func.len - name.len - 1];
+        const sig = func["zjb_fnHandle_".len .. func.len - name.len - 1];
 
         var found = false;
         for (unique_sigs.items) |s| {
@@ -575,9 +575,9 @@ pub fn main(init: std.process.Init) !void {
 
     try writer.writeAll("    };\n"); // end export object
 
-    try writer.writeAll("    this._fnptr = {\n");
+    try writer.writeAll("    this._fnHandle = {\n");
     for (unique_sigs.items) |s| {
-        try writer.print("      \"{s}\": (fnName) => {{\n        return (", .{s.sig});
+        try writer.print("      \"{s}\": (fnName) => {{\n        const fn = this.instance.exports[\"zjb_fnHandle_{s}_\" + fnName];\n        return (", .{ s.sig, s.sig });
         for (0..s.args.len) |i| {
             if (i > 0) try writer.writeAll(", ");
             try writer.print("arg{d}", .{i});
@@ -588,7 +588,7 @@ pub fn main(init: std.process.Init) !void {
             .bool => try writer.writeAll("Boolean("),
             .object, .const_object => try writer.writeAll("this.gh("),
         }
-        try writer.print("this.instance.exports[\"zjb_fnptr_{s}_\" + fnName](", .{s.sig});
+        try writer.writeAll("fn(");
         for (s.args, 0..) |arg, i| {
             if (i > 0) try writer.writeAll(", ");
             switch (arg) {
@@ -620,7 +620,7 @@ pub fn main(init: std.process.Init) !void {
         \\    this._consthandles.set(2, window);
         \\    this._consthandles.set(3, "");
         \\    this._consthandles.set(4, this.exports);
-        \\    this._consthandles.set(5, this._fnptr);
+        \\    this._consthandles.set(5, this._fnHandle);
         \\    this._next_handle = 1;
         \\    this._next_const_handle = 6;
         \\  }

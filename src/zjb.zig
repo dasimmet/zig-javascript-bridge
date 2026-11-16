@@ -37,7 +37,7 @@ pub fn global(comptime b: []const u8) ConstHandle {
 }
 
 pub fn fnHandle(comptime name: []const u8, comptime f: anytype) ConstHandle {
-    comptime exposeFn("zjb_fnptr", name, f);
+    comptime exposeFn("zjb_fnHandle", name, f);
 
     return struct {
         var handle: ?ConstHandle = null;
@@ -46,7 +46,7 @@ pub fn fnHandle(comptime name: []const u8, comptime f: anytype) ConstHandle {
                 return h;
             }
             const sig = comptime exposeFnSig(f);
-            handle = ConstHandle.fnptr.call(sig, .{constString(name)}, ConstHandle);
+            handle = ConstHandle.fnHandle.call(sig, .{constString(name)}, ConstHandle);
             return handle.?;
         }
     }.get();
@@ -135,7 +135,7 @@ pub const ConstHandle = enum(i32) {
     global = -2,
     empty_string = -3,
     exports = -4,
-    fnptr = -5,
+    fnHandle = -5,
     _,
 
     pub fn isNull(handle: ConstHandle) bool {
@@ -175,7 +175,7 @@ pub const Handle = enum(i32) {
     global = -2,
     empty_string = -3,
     exports = -4,
-    fnptr = -5,
+    fnHandle = -5,
     _,
 
     pub fn isNull(handle: Handle) bool {

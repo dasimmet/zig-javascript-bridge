@@ -83,13 +83,13 @@ Zjb functions which return a value from Javascript require specifying which type
   - `-2`: Javascript global scope (`window` in browsers)
   - `-3`: Javascript empty string `""`
   - `-4`: `this.exports` (functions and globals exported from Zig)
-  - `-5`: `this._fnptr` (callback dispatch table)
+  - `-5`: `this._fnHandle` (callback dispatch table)
   Dynamic `ConstHandle`s ($\le -6$) are memoized upon first use on the Zig side, so they can be used any number of times without churning garbage.  They are never released and remain valid for the lifetime of the program.
 - `void` is a valid type for method calls which have no return value.
 
 Zjb supports multiple ways to expose Zig functions to Javascript:
 - `zjb.exportFn` exposes the function with the passed name under `Zjb.exports` for Javascript callers.  This supports `zjb.Handle`, so if you pass an object from a Javascript function, a handle will automatically be created and passed into Zig.  It is the responsibility of the Zig function being called to call `release` on any handles in its arguments at the appropriate time to avoid memory leaks.
-- `zjb.fnHandle` exposes callbacks for use as arguments to Javascript functions (such as event listeners) without polluting `Zjb.exports`.  It generates a Wasm export prefixed with `zjb_fnptr_` and creates signature-deduplicated factory functions on the Javascript side (`this._fnptr[sig](name)`), so only one generic wrapper is generated per unique function signature rather than per function.
+- `zjb.fnHandle` exposes callbacks for use as arguments to Javascript functions (such as event listeners) without polluting `Zjb.exports`.  It generates a Wasm export prefixed with `zjb_fnHandle_` and creates signature-deduplicated factory functions on the Javascript side (`this._fnHandle[sig](name)`), so only one generic wrapper is generated per unique function signature rather than per function.
 - Zig's `export` keyword on functions works as it always does in WASM, but doesn't support `zjb.Handle` correctly.
 
 Simple Zig global variables can also be exposed to Javascript:
@@ -194,7 +194,7 @@ const Zjb = class {
     };
     this.exports = {
     };
-    this._fnptr = {
+    this._fnHandle = {
     };
     this.instance = null;
     this._cached_data_view = null;
@@ -207,7 +207,7 @@ const Zjb = class {
     this._consthandles.set(2, window);
     this._consthandles.set(3, "");
     this._consthandles.set(4, this.exports);
-    this._consthandles.set(5, this._fnptr);
+    this._consthandles.set(5, this._fnHandle);
     this._next_handle = 1;
     this._next_const_handle = 6;
   }
